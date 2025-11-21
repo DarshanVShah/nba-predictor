@@ -2,10 +2,13 @@ import pandas as pd
 import numpy as np
 from sklearn.linear_model import RidgeClassifier
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.calibration import CalibratedClassifierCV
 import joblib
 import os
 import logging
+from datetime import datetime
 from backend.config import DATA_FILE_PATH
+from backend.utils.team_stats_fetcher import TeamStatsFetcher
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -19,6 +22,7 @@ class NBAPredictor:
         self.model = None
         self.scaler = None
         self.predictors = None
+        self.stats_fetcher = None
         self.base_predictors = [
             'fg%', '3p', 'trb', 'efg%', 'ast%', 'usg%', 'ortg',
             'fga_max', '3pa_max', 'ft_max', 'orb_max', 'gmsc_max',
@@ -89,6 +93,9 @@ class NBAPredictor:
             # Load the saved model, scaler, and predictors
             self.load_saved_components()
             
+            # Initialize stats fetcher for future game predictions
+            self.stats_fetcher = TeamStatsFetcher(self.df)
+            
             logger.info("Data processing complete")
             
         except Exception as e:
@@ -155,7 +162,8 @@ class NBAPredictor:
         
     def predict_game(self, home_team, away_team, date):
         """
-        Predict the winner of a game between two teams
+        Predict the winner of a game between two teams.
+        Works for both historical and future games.
         
         Args:
             home_team (str): Home team abbreviation (e.g., 'LAL')
@@ -168,34 +176,120 @@ class NBAPredictor:
         try:
             logger.info(f"Predicting game: {home_team} vs {away_team} on {date}")
             
-            # Get the most recent game data for both teams
-            home_data = self.df[self.df['team'] == home_team].copy()
-            away_data = self.df[self.df['team'] == away_team].copy()
+            game_date = pd.to_datetime(date)
+            today = pd.to_datetime(datetime.now().date())
             
-            if home_data.empty:
-                raise ValueError(f"No data found for home team: {home_team}")
-            if away_data.empty:
-                raise ValueError(f"No data found for away team: {away_team}")
+            # Check if this is a future game
+            is_future_game = game_date > today
             
-            # Get the most recent game for each team
-            home_data = home_data.iloc[-1]
-            away_data = away_data.iloc[-1]
+            if is_future_game and self.stats_fetcher:
+                # For future games, use stats fetcher to get current team stats
+                logger.info("Fetching current stats for future game...")
+                home_features = self.stats_fetcher.get_team_features_for_prediction(
+                    home_team, away_team, date
+                )
+                
+                # Get away team features (swap teams)
+                away_features = self.stats_fetcher.get_team_features_for_prediction(
+                    away_team, home_team, date
+                )
+                
+                # Create differential features (home - away)
+                game_features = pd.DataFrame()
+                for feature in self.predictors:
+                    home_val = home_features.get(feature, 0.0)
+                    away_val = away_features.get(feature, 0.0)
+                    
+                    # For some features, we need to handle differently
+                    if feature == 'home_court_advantage':
+                        game_features[feature] = [1.0]  # Home team always has advantage
+                    elif feature == 'rest_days':
+                        game_features[feature] = [home_features.get('rest_days', 2.0)]
+                    elif feature in ['win_pct_last_10', 'win_pct_season', 'momentum_score', 'opp_strength']:
+                        game_features[feature] = [home_val - away_val]
+                    else:
+                        game_features[feature] = [home_val - away_val]
+                
+                # Get feature values for response
+                home_team_features = {
+                    "win_pct_last_10": float(home_features.get('win_pct_last_10', 0.5)),
+                    "win_pct_season": float(home_features.get('win_pct_season', 0.5)),
+                    "momentum_score": float(home_features.get('momentum_score', 0.5)),
+                    "rest_days": float(home_features.get('rest_days', 2.0))
+                }
+                away_team_features = {
+                    "win_pct_last_10": float(away_features.get('win_pct_last_10', 0.5)),
+                    "win_pct_season": float(away_features.get('win_pct_season', 0.5)),
+                    "momentum_score": float(away_features.get('momentum_score', 0.5)),
+                    "rest_days": float(away_features.get('rest_days', 2.0))
+                }
+            else:
+                # For historical games, use existing data
+                home_data = self.df[self.df['team'] == home_team].copy()
+                away_data = self.df[self.df['team'] == away_team].copy()
+                
+                if home_data.empty:
+                    raise ValueError(f"No data found for home team: {home_team}")
+                if away_data.empty:
+                    raise ValueError(f"No data found for away team: {away_team}")
+                
+                # Get the most recent game for each team up to the game date
+                home_data = home_data[home_data['date'] <= game_date]
+                away_data = away_data[away_data['date'] <= game_date]
+                
+                if home_data.empty or away_data.empty:
+                    raise ValueError(f"Insufficient historical data for prediction on {date}")
+                
+                home_data = home_data.iloc[-1]
+                away_data = away_data.iloc[-1]
+                
+                # Create feature vector for prediction
+                game_features = pd.DataFrame()
+                for feature in self.predictors:
+                    home_val = home_data.get(feature, 0.0) if feature in home_data.index else 0.0
+                    away_val = away_data.get(feature, 0.0) if feature in away_data.index else 0.0
+                    game_features[feature] = [home_val - away_val]
+                
+                home_team_features = {
+                    "win_pct_last_10": float(home_data.get('win_pct_last_10', 0.5)),
+                    "win_pct_season": float(home_data.get('win_pct_season', 0.5)),
+                    "momentum_score": float(home_data.get('momentum_score', 0.5)),
+                    "rest_days": float(home_data.get('rest_days', 2.0))
+                }
+                away_team_features = {
+                    "win_pct_last_10": float(away_data.get('win_pct_last_10', 0.5)),
+                    "win_pct_season": float(away_data.get('win_pct_season', 0.5)),
+                    "momentum_score": float(away_data.get('momentum_score', 0.5)),
+                    "rest_days": float(away_data.get('rest_days', 2.0))
+                }
             
-            # Create feature vector for prediction
-            game_features = pd.DataFrame()
+            # Ensure all required features are present
             for feature in self.predictors:
-                game_features[feature] = [home_data[feature] - away_data[feature]]
+                if feature not in game_features.columns:
+                    game_features[feature] = [0.0]
+            
+            # Reorder columns to match training data
+            game_features = game_features[self.predictors]
             
             # Scale features
             game_features_scaled = self.scaler.transform(game_features)
             
             # Make prediction
             prediction = self.model.predict(game_features_scaled)[0]
-            confidence = np.max(self.model.decision_function(game_features_scaled))
+            
+            # Get proper probability/confidence
+            # Use decision_function and convert to probability-like score
+            decision_score = self.model.decision_function(game_features_scaled)[0]
+            
+            # Convert decision function to a probability-like confidence (0-1)
+            # Using sigmoid-like transformation
+            confidence = 1 / (1 + np.exp(-decision_score))
+            # Normalize to make it more interpretable (0.5 = 50%, 0.7 = 70%, etc.)
+            confidence = max(0.5, min(0.95, 0.5 + (confidence - 0.5) * 0.9))
             
             winner = home_team if prediction == 1 else away_team
             
-            logger.info(f"Prediction complete: {winner} wins with confidence {confidence:.2f}")
+            logger.info(f"Prediction complete: {winner} wins with confidence {confidence:.2%}")
             
             return {
                 "winner": winner,
@@ -203,18 +297,8 @@ class NBAPredictor:
                 "home_team": home_team,
                 "away_team": away_team,
                 "date": date,
-                "home_team_features": {
-                    "win_pct_last_10": float(home_data['win_pct_last_10']),
-                    "win_pct_season": float(home_data['win_pct_season']),
-                    "momentum_score": float(home_data['momentum_score']),
-                    "rest_days": float(home_data['rest_days'])
-                },
-                "away_team_features": {
-                    "win_pct_last_10": float(away_data['win_pct_last_10']),
-                    "win_pct_season": float(away_data['win_pct_season']),
-                    "momentum_score": float(away_data['momentum_score']),
-                    "rest_days": float(away_data['rest_days'])
-                }
+                "home_team_features": home_team_features,
+                "away_team_features": away_team_features
             }
         except Exception as e:
             logger.error(f"Error making prediction: {str(e)}")
