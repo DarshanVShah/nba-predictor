@@ -16,7 +16,12 @@ DATA_DIR = "data"
 PROCESSED_DIR = os.path.join(DATA_DIR, "processed")
 
 # Initialize balldontlie client
-api = BalldontlieAPI(api_key="bfdc4ecf-c070-4e93-b9ac-cb36f049efb1")
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+api_key = os.getenv("BALLDONTLIE_API_KEY", "bfdc4ecf-c070-4e93-b9ac-cb36f049efb1")
+api = BalldontlieAPI(api_key=api_key)
 
 async def get_future_games():
     """Get list of future games from balldontlie API."""

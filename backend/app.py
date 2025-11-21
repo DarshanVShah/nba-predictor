@@ -10,6 +10,10 @@ import pandas as pd
 from balldontlie import BalldontlieAPI
 import asyncio
 from backend.config import DATA_FILE_PATH
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -19,8 +23,10 @@ logger = logging.getLogger(__name__)
 logger.info(f"Current working directory: {os.getcwd()}")
 logger.info(f"Absolute path of data file: {DATA_FILE_PATH}")
 
-# Initialize balldontlie client with API key
-api = BalldontlieAPI(api_key="bfdc4ecf-c070-4e93-b9ac-cb36f049efb1")
+# Initialize balldontlie client with API key from environment
+
+api_key = os.getenv("BALLDONTLIE_API_KEY", "bfdc4ecf-c070-4e93-b9ac-cb36f049efb1")
+api = BalldontlieAPI(api_key=api_key)
 
 app = FastAPI(title="NBA Game Predictor")
 
@@ -151,4 +157,47 @@ async def trigger_data_update():
     except Exception as e:
         error_msg = f"Error updating data: {str(e)}"
         logger.error(error_msg)
-        raise HTTPException(status_code=500, detail=error_msg) 
+        raise HTTPException(status_code=500, detail=error_msg)
+
+@app.get("/model-stats")
+async def get_model_stats():
+    """
+    Get model evaluation statistics and accuracy metrics
+    """
+    if predictor is None:
+        raise HTTPException(status_code=500, detail="Model not initialized properly")
+    
+    try:
+        # Evaluate model on historical data
+        evaluation = predictor.evaluate_model(test_size=0.2)
+        
+        # Get data statistics
+        total_games = len(predictor.df)
+        total_teams = predictor.df["team"].nunique()
+        date_range = {
+            "start": predictor.df["date"].min().strftime("%Y-%m-%d"),
+            "end": predictor.df["date"].max().strftime("%Y-%m-%d")
+        }
+        
+        return {
+            "model_accuracy": evaluation["accuracy"],
+            "confusion_matrix": evaluation["confusion_matrix"],
+            "data_statistics": {
+                "total_games": int(total_games),
+                "total_teams": int(total_teams),
+                "date_range": date_range
+            },
+            "features_used": len(predictor.predictors)
+        }
+    except Exception as e:
+        logger.error(f"Error getting model stats: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "model_loaded": predictor is not None,
+        "timestamp": datetime.now().isoformat()
+    } 
