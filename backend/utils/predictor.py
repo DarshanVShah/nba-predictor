@@ -2,13 +2,11 @@ import pandas as pd
 import numpy as np
 from sklearn.linear_model import RidgeClassifier
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.calibration import CalibratedClassifierCV
 import joblib
 import os
 import logging
 from datetime import datetime
 from backend.config import DATA_FILE_PATH
-from backend.utils.team_stats_fetcher import TeamStatsFetcher
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -22,81 +20,55 @@ class NBAPredictor:
         self.model = None
         self.scaler = None
         self.predictors = None
-        self.stats_fetcher = None
-        self.base_predictors = [
-            'fg%', '3p', 'trb', 'efg%', 'ast%', 'usg%', 'ortg',
-            'fga_max', '3pa_max', 'ft_max', 'orb_max', 'gmsc_max',
-            'ftr_max', 'stl%_max', 'blk%_max', 'fg%_opp', 'ast_opp',
-            'pts_opp', 'ts%_opp', 'efg%_opp', 'blk%_opp', 'usg%_opp',
-            'drtg_opp', 'fg%_max_opp', 'stl_max_opp', 'tov_max_opp',
-            'gmsc_max_opp', 'drb%_max_opp', 'ast%_max_opp', 'total_opp'
-        ]
-        self.predictors = self.base_predictors + [
-            'home_court_advantage',
-            'rest_days',
-            'win_pct_last_10',
-            'win_pct_season',
-            'momentum_score',
-            'opp_strength'
-        ]
+        self.df = None  # This will be the merged dataset (full)
+        self.raw_df = None  # Raw dataset for calculating rolling averages
         logger.info("NBAPredictor initialized successfully")
         
     def load_data(self):
-        """Load data from CSV file"""
+        """Load the merged dataset from CSV file"""
         try:
-            logger.info(f"Loading data from CSV...")
+            logger.info(f"Loading merged dataset from CSV...")
             logger.info(f"Data path: {DATA_FILE_PATH}")
+            
+            # Load the merged dataset (this is the 'full' dataset from the notebook)
             self.df = pd.read_csv(DATA_FILE_PATH)
-            logger.info("Data loaded successfully")
+            logger.info(f"Loaded dataset with shape: {self.df.shape}")
             
-            # Verify required columns exist
-            required_columns = ['team', 'date', 'won'] + self.base_predictors
-            missing_columns = [col for col in required_columns if col not in self.df.columns]
-            if missing_columns:
-                raise ValueError(f"Missing required columns: {missing_columns}")
+            # Check if this is the merged dataset (has team_x, team_y columns)
+            if 'team_x' not in self.df.columns or 'team_y' not in self.df.columns:
+                logger.warning("⚠️ Dataset doesn't appear to be merged. Expected team_x and team_y columns.")
+                logger.warning("⚠️ You need to run the Predict.ipynb notebook to create the merged dataset.")
+                logger.warning("⚠️ Predictions may not work correctly until the merged dataset is created.")
+                # Try to load raw data for future predictions
+                raw_data_path = os.path.join(os.path.dirname(DATA_FILE_PATH), "processed_nba_data.csv")
+                if os.path.exists(raw_data_path):
+                    logger.info("Loading raw dataset for rolling average calculations...")
+                    self.raw_df = pd.read_csv(raw_data_path)
+                    if 'date' in self.raw_df.columns:
+                        self.raw_df['date'] = pd.to_datetime(self.raw_df['date'])
+                        self.raw_df = self.raw_df.sort_values('date')
+                else:
+                    logger.warning("Raw dataset not found. Future predictions may not work correctly.")
+            else:
+                logger.info("✅ Merged dataset detected (has team_x and team_y columns)")
             
-            self.df = self.df.sort_values("date")
-            self.df = self.df.reset_index(drop=True)
-            
-            # Convert date to datetime
-            self.df['date'] = pd.to_datetime(self.df['date'])
-            
-            # Add target variable
-            def add_target(team):
-                team["target"] = team["won"].shift(-1)
-                return team
-            self.df = self.df.groupby("team", group_keys=False).apply(add_target)
-            
-            # Handle missing values using loc to avoid chained assignment warning
-            self.df.loc[pd.isnull(self.df["target"]), "target"] = 2
-            self.df["target"] = self.df["target"].astype(int, errors="ignore")
-            
-            # Add home court advantage
-            self.df['home_court_advantage'] = self.df['home'].astype(int)
-            
-            # Add rest days
-            self.df['rest_days'] = self.df.groupby('team')['date'].diff().dt.days.fillna(0)
-            
-            # Add win percentage features
-            self.df['win_pct_last_10'] = self.df.groupby('team')['won'].rolling(10, min_periods=1).mean().reset_index(0, drop=True)
-            self.df['win_pct_season'] = self.df.groupby(['team', 'season'])['won'].transform(lambda x: x.expanding().mean())
-            
-            # Add momentum score (weighted average of last 5 games)
-            weights = np.array([0.3, 0.25, 0.2, 0.15, 0.1])  # More weight to recent games
-            self.df['momentum_score'] = self.df.groupby('team')['won'].rolling(5, min_periods=1).apply(
-                lambda x: np.sum(x * weights[:len(x)]) / np.sum(weights[:len(x)])
-            ).reset_index(0, drop=True)
-            
-            # Add opponent strength (opponent's win percentage)
-            self.df['opp_strength'] = self.df.groupby('team_opp')['won'].transform('mean')
+            # Convert date columns to datetime if they exist
+            if 'date_next' in self.df.columns:
+                self.df['date_next'] = pd.to_datetime(self.df['date_next'])
             
             # Load the saved model, scaler, and predictors
             self.load_saved_components()
             
-            # Initialize stats fetcher for future game predictions
-            self.stats_fetcher = TeamStatsFetcher(self.df)
+            # Verify that saved predictors exist in the dataframe
+            if self.predictors:
+                missing_predictors = [p for p in self.predictors if p not in self.df.columns]
+                if missing_predictors:
+                    logger.warning(f"Some saved predictors are missing from data: {missing_predictors[:10]}...")
+                    # Filter out missing predictors
+                    self.predictors = [p for p in self.predictors if p in self.df.columns]
+                    logger.info(f"Using {len(self.predictors)} available predictors out of {len(joblib.load(os.path.join(os.getcwd(), 'backend', 'models', 'predictors.pkl')))}")
             
-            logger.info("Data processing complete")
+            logger.info("Data loading complete")
             
         except Exception as e:
             logger.error(f"Error loading data: {str(e)}")
@@ -124,40 +96,10 @@ class NBAPredictor:
                 raise FileNotFoundError(f"Predictors file not found at {predictors_path}")
             logger.info("Loading saved predictors...")
             self.predictors = joblib.load(predictors_path)
+            logger.info(f"Loaded {len(self.predictors)} predictors")
             logger.info("All components loaded successfully")
         except Exception as e:
             logger.error(f"Error loading saved components: {str(e)}")
-            raise
-
-    def load_or_train_model(self):
-        """Load existing model or train a new one if not found"""
-        model_path = os.path.join("data", "models", "model.pkl")
-        try:
-            if os.path.exists(model_path):
-                logger.info("Loading existing model...")
-                self.model = joblib.load(model_path)
-                logger.info("Model loaded successfully")
-            else:
-                logger.info("No existing model found. Training new model...")
-                self.train()
-                # Create models directory if it doesn't exist
-                os.makedirs(os.path.dirname(model_path), exist_ok=True)
-                # Save the trained model
-                joblib.dump(self.model, model_path)
-                logger.info("Model saved successfully")
-        except Exception as e:
-            logger.error(f"Error in load_or_train_model: {str(e)}")
-            raise
-        
-    def train(self):
-        """Train the model on historical data"""
-        try:
-            logger.info("Training model...")
-            self.model = RidgeClassifier(alpha=1)
-            self.model.fit(self.df[self.predictors], self.df["target"])
-            logger.info("Model training complete")
-        except Exception as e:
-            logger.error(f"Error training model: {str(e)}")
             raise
         
     def predict_game(self, home_team, away_team, date):
@@ -182,97 +124,98 @@ class NBAPredictor:
             # Check if this is a future game
             is_future_game = game_date > today
             
-            if is_future_game and self.stats_fetcher:
-                # For future games, use stats fetcher to get current team stats
-                logger.info("Fetching current stats for future game...")
-                home_features = self.stats_fetcher.get_team_features_for_prediction(
-                    home_team, away_team, date
-                )
-                
-                # Get away team features (swap teams)
-                away_features = self.stats_fetcher.get_team_features_for_prediction(
-                    away_team, home_team, date
-                )
-                
-                # Create differential features (home - away)
-                game_features = pd.DataFrame()
-                for feature in self.predictors:
-                    home_val = home_features.get(feature, 0.0)
-                    away_val = away_features.get(feature, 0.0)
-                    
-                    # For some features, we need to handle differently
-                    if feature == 'home_court_advantage':
-                        game_features[feature] = [1.0]  # Home team always has advantage
-                    elif feature == 'rest_days':
-                        game_features[feature] = [home_features.get('rest_days', 2.0)]
-                    elif feature in ['win_pct_last_10', 'win_pct_season', 'momentum_score', 'opp_strength']:
-                        game_features[feature] = [home_val - away_val]
-                    else:
-                        game_features[feature] = [home_val - away_val]
-                
-                # Get feature values for response
-                home_team_features = {
-                    "win_pct_last_10": float(home_features.get('win_pct_last_10', 0.5)),
-                    "win_pct_season": float(home_features.get('win_pct_season', 0.5)),
-                    "momentum_score": float(home_features.get('momentum_score', 0.5)),
-                    "rest_days": float(home_features.get('rest_days', 2.0))
-                }
-                away_team_features = {
-                    "win_pct_last_10": float(away_features.get('win_pct_last_10', 0.5)),
-                    "win_pct_season": float(away_features.get('win_pct_season', 0.5)),
-                    "momentum_score": float(away_features.get('momentum_score', 0.5)),
-                    "rest_days": float(away_features.get('rest_days', 2.0))
-                }
-            else:
-                # For historical games, use existing data
-                home_data = self.df[self.df['team'] == home_team].copy()
-                away_data = self.df[self.df['team'] == away_team].copy()
-                
-                if home_data.empty:
-                    raise ValueError(f"No data found for home team: {home_team}")
-                if away_data.empty:
-                    raise ValueError(f"No data found for away team: {away_team}")
-                
-                # Get the most recent game for each team up to the game date
-                home_data = home_data[home_data['date'] <= game_date]
-                away_data = away_data[away_data['date'] <= game_date]
-                
-                if home_data.empty or away_data.empty:
-                    raise ValueError(f"Insufficient historical data for prediction on {date}")
-                
-                home_data = home_data.iloc[-1]
-                away_data = away_data.iloc[-1]
-                
-                # Create feature vector for prediction
-                game_features = pd.DataFrame()
-                for feature in self.predictors:
-                    home_val = home_data.get(feature, 0.0) if feature in home_data.index else 0.0
-                    away_val = away_data.get(feature, 0.0) if feature in away_data.index else 0.0
-                    game_features[feature] = [home_val - away_val]
-                
-                home_team_features = {
-                    "win_pct_last_10": float(home_data.get('win_pct_last_10', 0.5)),
-                    "win_pct_season": float(home_data.get('win_pct_season', 0.5)),
-                    "momentum_score": float(home_data.get('momentum_score', 0.5)),
-                    "rest_days": float(home_data.get('rest_days', 2.0))
-                }
-                away_team_features = {
-                    "win_pct_last_10": float(away_data.get('win_pct_last_10', 0.5)),
-                    "win_pct_season": float(away_data.get('win_pct_season', 0.5)),
-                    "momentum_score": float(away_data.get('momentum_score', 0.5)),
-                    "rest_days": float(away_data.get('rest_days', 2.0))
-                }
+            # Try to find matching row in merged dataset
+            # The merged dataset has team_x (home) and team_y (away) with date_next
+            matching_row = None
             
-            # Ensure all required features are present
+            # Check if we have the merged dataset structure
+            has_merged_structure = ('team_x' in self.df.columns and 
+                                   'team_y' in self.df.columns and 
+                                   'date_next' in self.df.columns)
+            
+            if has_merged_structure:
+                # Look for exact match
+                matches = self.df[
+                    (self.df['team_x'] == home_team) & 
+                    (self.df['team_y'] == away_team) &
+                    (self.df['date_next'] == game_date)
+                ]
+                
+                if len(matches) > 0:
+                    matching_row = matches.iloc[0]
+                    logger.info("Found matching row in merged dataset")
+                else:
+                    # Try reverse (maybe team_x is away and team_y is home)
+                    matches = self.df[
+                        (self.df['team_x'] == away_team) & 
+                        (self.df['team_y'] == home_team) &
+                        (self.df['date_next'] == game_date)
+                    ]
+                    if len(matches) > 0:
+                        matching_row = matches.iloc[0]
+                        logger.info("Found matching row (reversed teams)")
+            
+            if matching_row is not None:
+                # Use the matching row from merged dataset
+                logger.info("Using historical data from merged dataset")
+                game_features = pd.DataFrame([matching_row[self.predictors]])
+            elif is_future_game and self.raw_df is not None:
+                # For future games, calculate features from raw data
+                logger.info("Future game - calculating features from raw data...")
+                game_features = self._calculate_future_game_features(home_team, away_team, game_date)
+            elif not has_merged_structure:
+                # Dataset is not merged - cannot make predictions
+                error_msg = (
+                    "Dataset is not in merged format. "
+                    "Please run the Predict.ipynb notebook to create the merged dataset. "
+                    "The notebook should save 'full' DataFrame to final_dataset.csv"
+                )
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            elif not is_future_game:
+                # Historical game but not in merged dataset - try to find closest match
+                logger.info("Historical game not in merged dataset - finding closest match...")
+                if 'date_next' in self.df.columns:
+                    # Find closest date
+                    date_diff = (self.df['date_next'] - game_date).abs()
+                    closest_idx = date_diff.idxmin()
+                    if date_diff.iloc[closest_idx] < pd.Timedelta(days=7):  # Within 7 days
+                        matching_row = self.df.iloc[closest_idx]
+                        # Check if teams match
+                        if ((matching_row['team_x'] == home_team and matching_row['team_y'] == away_team) or
+                            (matching_row['team_x'] == away_team and matching_row['team_y'] == home_team)):
+                            game_features = pd.DataFrame([matching_row[self.predictors]])
+                            logger.info("Using closest matching row")
+                        else:
+                            raise ValueError(f"No matching game found for {home_team} vs {away_team} on {date}")
+                    else:
+                        raise ValueError(f"No matching game found for {home_team} vs {away_team} on {date}")
+                else:
+                    raise ValueError(f"No matching game found and cannot calculate features")
+            else:
+                raise ValueError(f"Cannot make prediction: No matching data and raw dataset not available")
+            
+            # Handle missing features
             for feature in self.predictors:
                 if feature not in game_features.columns:
-                    game_features[feature] = [0.0]
+                    game_features[feature] = 0.0
+                else:
+                    game_features[feature] = game_features[feature].fillna(0.0)
             
             # Reorder columns to match training data
             game_features = game_features[self.predictors]
             
+            # Convert to numeric and handle any remaining issues
+            for col in game_features.columns:
+                game_features[col] = pd.to_numeric(game_features[col], errors='coerce').fillna(0.0)
+            
             # Scale features
-            game_features_scaled = self.scaler.transform(game_features)
+            try:
+                game_features_scaled = self.scaler.transform(game_features)
+            except Exception as e:
+                logger.error(f"Error scaling features: {str(e)}")
+                logger.error(f"Feature shape: {game_features.shape}, Columns: {list(game_features.columns)}")
+                raise ValueError(f"Feature scaling error: {str(e)}")
             
             # Make prediction
             prediction = self.model.predict(game_features_scaled)[0]
@@ -296,12 +239,81 @@ class NBAPredictor:
                 "confidence": float(confidence),
                 "home_team": home_team,
                 "away_team": away_team,
-                "date": date,
-                "home_team_features": home_team_features,
-                "away_team_features": away_team_features
+                "date": date
             }
         except Exception as e:
             logger.error(f"Error making prediction: {str(e)}")
+            raise
+    
+    def _calculate_future_game_features(self, home_team, away_team, game_date):
+        """
+        Calculate features for a future game by computing rolling averages
+        similar to how the notebook does it.
+        """
+        try:
+            # Get home team's most recent games (up to game_date)
+            home_games = self.raw_df[
+                (self.raw_df['team'] == home_team) & 
+                (self.raw_df['date'] < game_date)
+            ].tail(10)
+            
+            # Get away team's most recent games (up to game_date)
+            away_games = self.raw_df[
+                (self.raw_df['team'] == away_team) & 
+                (self.raw_df['date'] < game_date)
+            ].tail(10)
+            
+            if home_games.empty or away_games.empty:
+                raise ValueError(f"Insufficient historical data for {home_team} or {away_team}")
+            
+            # Calculate rolling averages (10-game window) for home team
+            home_rolling = home_games.mean(numeric_only=True)
+            
+            # Calculate rolling averages (10-game window) for away team
+            away_rolling = away_games.mean(numeric_only=True)
+            
+            # Construct features matching the merged dataset structure
+            # Features with _x suffix come from home team
+            # Features with _y suffix come from away team
+            game_features = {}
+            
+            for feature in self.predictors:
+                if feature.endswith('_x'):
+                    # Home team feature
+                    base_feature = feature[:-2]  # Remove _x suffix
+                    if base_feature in home_rolling.index:
+                        game_features[feature] = home_rolling[base_feature]
+                    else:
+                        game_features[feature] = 0.0
+                elif feature.endswith('_y'):
+                    # Away team feature
+                    base_feature = feature[:-2]  # Remove _y suffix
+                    if base_feature in away_rolling.index:
+                        game_features[feature] = away_rolling[base_feature]
+                    else:
+                        game_features[feature] = 0.0
+                elif feature == 'home_next':
+                    # Home court advantage
+                    game_features[feature] = 1.0
+                else:
+                    # Regular feature - try to find in home or away data
+                    if feature in home_rolling.index:
+                        home_val = home_rolling[feature]
+                    else:
+                        home_val = 0.0
+                    
+                    if feature in away_rolling.index:
+                        away_val = away_rolling[feature]
+                    else:
+                        away_val = 0.0
+                    
+                    # For non-suffixed features, use differential (home - away)
+                    game_features[feature] = home_val - away_val
+            
+            return pd.DataFrame([game_features])
+            
+        except Exception as e:
+            logger.error(f"Error calculating future game features: {str(e)}")
             raise
 
     def evaluate_model(self, test_size=0.2):
@@ -319,10 +331,19 @@ class NBAPredictor:
             from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
             from sklearn.model_selection import train_test_split
             
+            if 'target' not in self.df.columns:
+                raise ValueError("Target column not found in dataset")
+            
+            # Filter out rows where target == 2 (no next game)
+            eval_df = self.df[self.df['target'] != 2].copy()
+            
+            if len(eval_df) == 0:
+                raise ValueError("No valid evaluation data (all targets are 2)")
+            
             # Split data into training and testing sets
-            X = self.df[self.predictors]
-            y = self.df['target']
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
+            X = eval_df[self.predictors]
+            y = eval_df['target']
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42, shuffle=False)
             
             # Train model on training data
             self.model.fit(X_train, y_train)
@@ -345,13 +366,3 @@ class NBAPredictor:
         except Exception as e:
             logger.error(f"Error evaluating model: {str(e)}")
             raise
-
-    def load_model(self):
-        """Load the trained model"""
-        try:
-            logger.info(f"Loading model from {MODEL_FILE_PATH}")
-            self.model = joblib.load(MODEL_FILE_PATH)
-            logger.info("Model loaded successfully")
-        except Exception as e:
-            logger.error(f"Error loading model: {str(e)}")
-            raise 
