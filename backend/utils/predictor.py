@@ -61,12 +61,16 @@ class NBAPredictor:
             
             # Verify that saved predictors exist in the dataframe
             if self.predictors:
+                original_count = len(self.predictors)
                 missing_predictors = [p for p in self.predictors if p not in self.df.columns]
                 if missing_predictors:
                     logger.warning(f"Some saved predictors are missing from data: {missing_predictors[:10]}...")
                     # Filter out missing predictors
                     self.predictors = [p for p in self.predictors if p in self.df.columns]
-                    logger.info(f"Using {len(self.predictors)} available predictors out of {len(joblib.load(os.path.join(os.getcwd(), 'backend', 'models', 'predictors.pkl')))}")
+                    logger.warning(f"Using {len(self.predictors)} available predictors out of {original_count}")
+                    if len(self.predictors) < original_count * 0.8:  # Less than 80% of predictors
+                        logger.error(f"Too many predictors missing! Only {len(self.predictors)}/{original_count} available.")
+                        raise ValueError(f"Too many predictors missing from dataset. Expected {original_count}, found {len(self.predictors)}")
             
             logger.info("Data loading complete")
             
@@ -116,6 +120,16 @@ class NBAPredictor:
             dict: Prediction results including winner and confidence
         """
         try:
+            # Validate inputs
+            if not home_team or not away_team:
+                raise ValueError("home_team and away_team must be provided")
+            if home_team == away_team:
+                raise ValueError("home_team and away_team cannot be the same")
+            
+            # Check if predictors are loaded
+            if not self.predictors:
+                raise ValueError("Predictors not loaded. Model may not be initialized correctly.")
+            
             logger.info(f"Predicting game: {home_team} vs {away_team} on {date}")
             
             game_date = pd.to_datetime(date)
@@ -158,7 +172,21 @@ class NBAPredictor:
             if matching_row is not None:
                 # Use the matching row from merged dataset
                 logger.info("Using historical data from merged dataset")
-                game_features = pd.DataFrame([matching_row[self.predictors]])
+                try:
+                    # Extract features from matching row
+                    feature_dict = {}
+                    for pred in self.predictors:
+                        if pred in matching_row.index:
+                            feature_dict[pred] = matching_row[pred]
+                        else:
+                            logger.warning(f"Feature {pred} not found in matching row, using 0.0")
+                            feature_dict[pred] = 0.0
+                    game_features = pd.DataFrame([feature_dict])
+                except Exception as e:
+                    logger.error(f"Error extracting features from matching row: {str(e)}")
+                    logger.error(f"Available columns: {list(matching_row.index)[:20]}")
+                    logger.error(f"Required predictors: {self.predictors[:10]}")
+                    raise ValueError(f"Error extracting features: {str(e)}")
             elif is_future_game and self.raw_df is not None:
                 # For future games, calculate features from raw data
                 logger.info("Future game - calculating features from raw data...")
@@ -196,14 +224,27 @@ class NBAPredictor:
                 raise ValueError(f"Cannot make prediction: No matching data and raw dataset not available")
             
             # Handle missing features
+            missing_features = []
             for feature in self.predictors:
                 if feature not in game_features.columns:
+                    logger.warning(f"Feature {feature} missing, adding with value 0.0")
                     game_features[feature] = 0.0
+                    missing_features.append(feature)
                 else:
                     game_features[feature] = game_features[feature].fillna(0.0)
             
+            if missing_features:
+                logger.warning(f"Missing {len(missing_features)} features: {missing_features[:5]}")
+            
             # Reorder columns to match training data
-            game_features = game_features[self.predictors]
+            try:
+                game_features = game_features[self.predictors]
+            except KeyError as e:
+                logger.error(f"Error reordering features: {str(e)}")
+                logger.error(f"Game features columns: {list(game_features.columns)[:20]}")
+                logger.error(f"Required predictors: {self.predictors[:20]}")
+                missing = set(self.predictors) - set(game_features.columns)
+                raise ValueError(f"Missing required features: {list(missing)[:10]}")
             
             # Convert to numeric and handle any remaining issues
             for col in game_features.columns:

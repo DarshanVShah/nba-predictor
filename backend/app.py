@@ -70,15 +70,28 @@ async def predict_game(request: GamePredictionRequest):
         raise HTTPException(status_code=500, detail="Model not initialized properly")
     
     try:
+        logger.info(f"Prediction request: {request.home_team} vs {request.away_team} on {request.game_date}")
         prediction = predictor.predict_game(
             home_team=request.home_team,
             away_team=request.away_team,
             date=request.game_date.strftime("%Y-%m-%d")
         )
+        logger.info(f"Prediction successful: {prediction.get('winner', 'N/A')}")
         return prediction
+    except ValueError as e:
+        # ValueErrors are usually data/validation issues - return 400
+        error_msg = str(e)
+        logger.error(f"Validation error in predict_game: {error_msg}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=400, detail=error_msg)
     except Exception as e:
-        logger.error(f"Error in predict_game: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        # Other errors might be server issues - return 500
+        error_msg = f"Internal error: {str(e)}"
+        logger.error(f"Error in predict_game: {error_msg}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=error_msg)
 
 @app.get("/teams")
 async def get_teams():
