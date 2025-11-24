@@ -1,10 +1,10 @@
-# 🏀 NBA Game Predictor
+# HOOPSIQ - NBA Game Predictor
 
 An AI-powered web application that predicts NBA game winners using machine learning. Built with FastAPI (Python) and React.
 
 ![NBA Predictor](https://img.shields.io/badge/Python-3.8+-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.109-green) ![React](https://img.shields.io/badge/React-19.1-blue) ![License](https://img.shields.io/badge/License-MIT-yellow)
 
-## ✨ Features
+## Features
 
 - **AI-Powered Predictions**: Machine learning model trained on historical NBA game data
 - **Real-Time Game Data**: Fetches today's NBA games automatically
@@ -15,7 +15,7 @@ An AI-powered web application that predicts NBA game winners using machine learn
 - **Responsive Design**: Fully responsive layout that works on desktop, tablet, and mobile
 - **Team Logos**: Uses local team logo assets for fast loading and offline support
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -62,9 +62,7 @@ uvicorn backend.app:app --reload
 npm start
 ```
 
-3. **Open your browser** to `http://localhost:3000`
-
-## 📊 How It Works
+## How It Works
 
 ### Data Pipeline
 
@@ -85,7 +83,7 @@ npm start
 - **Validation**: Time-series cross-validation to prevent data leakage
 - **Accuracy**: ~63% on historical test data
 
-## 🎯 API Endpoints
+## API Endpoints
 
 ### `POST /predict`
 Predict the winner of an NBA game
@@ -124,79 +122,7 @@ Get model evaluation statistics
 ### `GET /health`
 Health check endpoint
 
-## 🛠️ Project Structure
-
-```
-nba-predictor/
-├── backend/
-│   ├── app.py                 # FastAPI application
-│   ├── config.py              # Configuration
-│   ├── models/                # Saved ML models
-│   ├── data/                  # Game data
-│   └── utils/
-│       ├── predictor.py        # Prediction logic
-│       ├── team_stats_fetcher.py  # Stats fetching for future games
-│       └── data_pipeline.py   # Data processing
-├── frontend/
-│   ├── public/
-│   │   └── assets/            # Team logo images (PNG/GIF)
-│   ├── src/
-│   │   ├── App.js             # Main React component
-│   │   ├── App.css            # Main application styles
-│   │   ├── components/        # React components
-│   │   │   ├── Header.js      # Header with model stats
-│   │   │   ├── Footer.js      # Footer component
-│   │   │   └── GameCard.js    # Individual game card
-│   │   └── utils/
-│   │       └── teamLogos.js  # Team logo mapping utilities
-│   └── package.json
-├── notebooks/                 # Jupyter notebooks for analysis
-├── requirements.txt           # Python dependencies
-└── README.md
-```
-
-## 🔧 Configuration
-
-### Environment Variables
-
-**Backend (.env):**
-```
-BALLDONTLIE_API_KEY=your_api_key_here
-BACKEND_HOST=localhost
-BACKEND_PORT=8000
-```
-
-**Frontend (.env):**
-```
-REACT_APP_API_URL=http://localhost:8000
-```
-
-## 📈 Model Performance
-
-- **Accuracy**: ~63% on test set
-- **Training Data**: 9,000+ historical games
-- **Features**: 30+ statistical and contextual features
-- **Validation**: Time-series cross-validation
-
-## 🚢 Deployment
-
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions.
-
-### Quick Deploy
-
-**Backend:**
-```bash
-gunicorn backend.app:app -w 4 -k uvicorn.workers.UvicornWorker
-```
-
-**Frontend:**
-```bash
-cd frontend
-npm run build
-# Serve the build/ directory
-```
-
-## 🎓 What This Project Demonstrates
+## What This Project Demonstrates
 
 - **Full-Stack Development**: FastAPI backend + React frontend
 - **Machine Learning**: Feature engineering, model training, deployment
@@ -204,7 +130,7 @@ npm run build
 - **API Design**: RESTful APIs with proper error handling
 - **Modern UI/UX**: Responsive design, loading states, error handling
 
-## 🔮 Future Improvements
+## Future Improvements
 
 - [ ] Upgrade to ensemble models (XGBoost, Random Forest)
 - [ ] Add player-level features (injuries, recent performance)
@@ -213,15 +139,9 @@ npm run build
 - [ ] Real-time game updates
 - [ ] User accounts and prediction tracking
 
-## 📝 License
-
-MIT License
-
-## 🙏 Acknowledgments
+## References
 
 - [balldontlie.io](https://www.balldontlie.io/) for NBA game data API
 - [Basketball Reference](https://www.basketball-reference.com/) for historical statistics
 
-## 📧 Contact
 
-For questions or issues, please open an issue on GitHub.
