@@ -61,6 +61,12 @@ backend/data/processed/*.csv
 backend/data/daily_games.csv
 notebooks/*.csv
 
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+backend/data/predictions.db
+
 # Logs
 *.log
 logs/
