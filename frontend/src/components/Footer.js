@@ -12,11 +12,10 @@ const Footer = ({ modelStats }) => {
       <div className="footer-content">
         <div className="footer-main">
           <p className="footer-text">
-            <span className="footer-icon">⚡</span>
-            Powered by Machine Learning
+            HoopsIQ
           </p>
           <p className="footer-tech">
-            Built with <span className="tech-highlight">FastAPI</span> & <span className="tech-highlight">React</span>
+            Built by Darshan Shah
           </p>
         </div>
         {modelStats && (
