@@ -126,7 +126,7 @@ const GameCard = ({ game, prediction, isPredicting, onPredict }) => {
             <span className="prediction-label">Predicted Winner</span>
           </div>
           <div className="prediction-result">
-            {prediction.confidence >= 0.45 && prediction.confidence <= 0.55 ? (
+            {prediction.confidence >= 0.49 && prediction.confidence <= 0.51 ? (
               <span className="no-clear-winner">No Clear Winner - Too Close to Call</span>
             ) : (
               <>
