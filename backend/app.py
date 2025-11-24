@@ -427,4 +427,136 @@ async def trigger_update():
         }
     except Exception as e:
         logger.error(f"Error triggering update: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/historical-predictions/{date}")
+async def get_historical_predictions(date: str):
+    """
+    Get games for a specific date, run predictions, and fetch actual results for comparison
+    Date format: YYYY-MM-DD
+    Earliest date: 2025-11-23
+    """
+    try:
+        # Parse and validate date
+        try:
+            target_date = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        
+        # Check earliest date (November 23, 2025)
+        earliest_date = datetime(2025, 11, 23).date()
+        if target_date < earliest_date:
+            raise HTTPException(status_code=400, detail=f"Earliest date allowed is {earliest_date}")
+        
+        # Check that date is not in the future
+        est = pytz.timezone('US/Eastern')
+        today_est = datetime.now(est).date()
+        if target_date > today_est:
+            raise HTTPException(status_code=400, detail="Cannot get predictions for future dates")
+        
+        logger.info(f"Fetching historical predictions for date: {date}")
+        
+        # Fetch games for the date
+        try:
+            response = api.nba.games.list(dates=[date])
+            if isinstance(response, dict):
+                games = response.get('data', [])
+            elif hasattr(response, 'data'):
+                games = response.data
+            else:
+                games = []
+        except Exception as api_error:
+            logger.error(f"API error fetching games: {str(api_error)}")
+            games = []
+        
+        if not games:
+            return {
+                "date": date,
+                "games": [],
+                "message": "No games found for this date"
+            }
+        
+        # Process each game: make prediction and get actual result
+        results = []
+        for game in games:
+            try:
+                # Extract team info
+                if isinstance(game, dict):
+                    home_team = game.get('home_team', {}).get('abbreviation') if isinstance(game.get('home_team'), dict) else None
+                    away_team = game.get('visitor_team', {}).get('abbreviation') if isinstance(game.get('visitor_team'), dict) else None
+                    status = game.get('status')
+                    home_score = game.get('home_team_score')
+                    visitor_score = game.get('visitor_team_score')
+                else:
+                    home_team = game.home_team.abbreviation if hasattr(game, 'home_team') and hasattr(game.home_team, 'abbreviation') else None
+                    away_team = game.visitor_team.abbreviation if hasattr(game, 'visitor_team') and hasattr(game.visitor_team, 'abbreviation') else None
+                    status = getattr(game, 'status', None)
+                    home_score = getattr(game, 'home_team_score', None)
+                    visitor_score = getattr(game, 'visitor_team_score', None)
+                
+                if not home_team or not away_team:
+                    continue
+                
+                # Make prediction
+                try:
+                    prediction_result = predictor.predict_game(home_team, away_team, date)
+                    predicted_winner = prediction_result.get('predicted_winner')
+                    confidence = prediction_result.get('confidence', 0.5)
+                except Exception as pred_error:
+                    logger.warning(f"Error predicting {home_team} vs {away_team}: {str(pred_error)}")
+                    predicted_winner = None
+                    confidence = 0.5
+                
+                # Get actual result if game is final
+                actual_winner = None
+                actual_home_score = None
+                actual_away_score = None
+                is_correct = None
+                
+                if status == 'Final' and home_score is not None and visitor_score is not None:
+                    actual_home_score = int(home_score)
+                    actual_away_score = int(visitor_score)
+                    actual_winner = home_team if home_score > visitor_score else away_team
+                    
+                    if predicted_winner:
+                        is_correct = (predicted_winner == actual_winner)
+                
+                results.append({
+                    "home_team": home_team,
+                    "away_team": away_team,
+                    "predicted_winner": predicted_winner,
+                    "confidence": confidence,
+                    "actual_winner": actual_winner,
+                    "actual_home_score": actual_home_score,
+                    "actual_away_score": actual_away_score,
+                    "is_correct": is_correct,
+                    "status": status
+                })
+                
+            except Exception as game_error:
+                logger.error(f"Error processing game: {str(game_error)}")
+                continue
+        
+        # Calculate stats for this date
+        completed_games = [r for r in results if r['is_correct'] is not None]
+        correct_predictions = sum(1 for r in completed_games if r['is_correct'])
+        accuracy = (correct_predictions / len(completed_games) * 100) if completed_games else None
+        
+        return {
+            "date": date,
+            "games": results,
+            "stats": {
+                "total_games": len(results),
+                "completed_games": len(completed_games),
+                "correct_predictions": correct_predictions,
+                "accuracy": accuracy
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting historical predictions: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e)) 
