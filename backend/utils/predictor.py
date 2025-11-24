@@ -385,10 +385,10 @@ class NBAPredictor:
             team_mapping = {
                 'BKN': 'BRK',  # Brooklyn Nets
                 'BRK': 'BRK',
-                'PHO': 'PHX',  # Phoenix Suns
-                'PHX': 'PHX',
-                'CHA': 'CHO',  # Charlotte Hornets
-                'CHO': 'CHO',
+                'PHO': 'PHO',  # Phoenix Suns (dataset uses PHO)
+                'PHX': 'PHO',  # Phoenix Suns (API uses PHX)
+                'CHA': 'CHO',  # Charlotte Hornets (API uses CHA)
+                'CHO': 'CHO',  # Charlotte Hornets (dataset uses CHO)
             }
             
             # Normalize team names

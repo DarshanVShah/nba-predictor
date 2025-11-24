@@ -290,22 +290,28 @@ function App() {
                             {prediction.winner} ({(prediction.confidence * 100).toFixed(1)}% confidence)
                           </span>
                         </div>
-                        <div className="team-stats">
-                          <div className="team-stat-item">
-                            <span className="stat-label">Home:</span>
-                            <span className="stat-value">
-                              {getTeamName(prediction.home_team)} - 
-                              Win%: {(prediction.home_team_features.win_pct_season * 100).toFixed(1)}%
-                            </span>
+                        {prediction.home_team_features && prediction.away_team_features && (
+                          <div className="team-stats">
+                            <div className="team-stat-item">
+                              <span className="stat-label">Home:</span>
+                              <span className="stat-value">
+                                {getTeamName(prediction.home_team)} - 
+                                Win%: {prediction.home_team_features.win_pct_season 
+                                  ? (prediction.home_team_features.win_pct_season * 100).toFixed(1) 
+                                  : 'N/A'}%
+                              </span>
+                            </div>
+                            <div className="team-stat-item">
+                              <span className="stat-label">Away:</span>
+                              <span className="stat-value">
+                                {getTeamName(prediction.away_team)} - 
+                                Win%: {prediction.away_team_features.win_pct_season 
+                                  ? (prediction.away_team_features.win_pct_season * 100).toFixed(1) 
+                                  : 'N/A'}%
+                              </span>
+                            </div>
                           </div>
-                          <div className="team-stat-item">
-                            <span className="stat-label">Away:</span>
-                            <span className="stat-value">
-                              {getTeamName(prediction.away_team)} - 
-                              Win%: {(prediction.away_team_features.win_pct_season * 100).toFixed(1)}%
-                            </span>
-                          </div>
-                        </div>
+                        )}
                       </div>
                     )}
                   </div>
