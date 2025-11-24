@@ -12,10 +12,9 @@ const Header = ({ modelStats }) => {
       <div className="header-content">
         <div className="header-title-section">
           <h1 className="app-title">
-            <span className="title-icon">🏀</span>
-            <span className="title-text">NBA Game Predictor</span>
+            <span className="title-text">HoopsIQ</span>
           </h1>
-          <p className="app-subtitle">AI-Powered Game Predictions Using Machine Learning</p>
+          <p className="app-subtitle">AI-Powered Game Predictions</p>
         </div>
         {modelStats && (
           <div className="model-stats-badge">
