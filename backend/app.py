@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 import pytz
 from backend.utils.predictor import NBAPredictor
 from backend.utils.data_pipeline import update_data
+from backend.utils.prediction_storage import save_prediction, get_prediction_history, get_prediction_stats, update_prediction_result
 import logging
 import os
 import pandas as pd
@@ -78,6 +79,19 @@ async def predict_game(request: GamePredictionRequest):
             date=request.game_date.strftime("%Y-%m-%d")
         )
         logger.info(f"Prediction successful: {prediction.get('winner', 'N/A')}")
+        
+        # Save prediction to history
+        try:
+            save_prediction(
+                home_team=request.home_team,
+                away_team=request.away_team,
+                game_date=request.game_date.strftime("%Y-%m-%d"),
+                predicted_winner=prediction['winner'],
+                confidence=prediction['confidence']
+            )
+        except Exception as e:
+            logger.warning(f"Failed to save prediction to history: {str(e)}")
+        
         return prediction
     except ValueError as e:
         # ValueErrors are usually data/validation issues - return 400
@@ -333,4 +347,39 @@ async def health_check():
         "status": "healthy",
         "model_loaded": predictor is not None,
         "timestamp": datetime.now().isoformat()
-    } 
+    }
+
+@app.get("/prediction-history")
+async def get_history(limit: int = 100, start_date: str = None, end_date: str = None):
+    """Get prediction history"""
+    try:
+        predictions = get_prediction_history(
+            limit=limit,
+            start_date=start_date,
+            end_date=end_date,
+            include_future=True
+        )
+        stats = get_prediction_stats()
+        return {
+            "predictions": predictions,
+            "stats": stats
+        }
+    except Exception as e:
+        logger.error(f"Error getting prediction history: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/update-prediction-result")
+async def update_result(prediction_id: int, actual_winner: str, 
+                       actual_score_home: int = None, actual_score_away: int = None):
+    """Update a prediction with actual game results"""
+    try:
+        update_prediction_result(
+            prediction_id=prediction_id,
+            actual_winner=actual_winner,
+            actual_score_home=actual_score_home,
+            actual_score_away=actual_score_away
+        )
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Error updating prediction result: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e)) 
