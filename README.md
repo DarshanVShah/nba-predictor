@@ -8,10 +8,12 @@ An AI-powered web application that predicts NBA game winners using machine learn
 
 - **AI-Powered Predictions**: Machine learning model trained on historical NBA game data
 - **Real-Time Game Data**: Fetches today's NBA games automatically
-- **Win Probability**: Shows confidence scores for each prediction
-- **Modern UI**: Beautiful, responsive design with gradient backgrounds
-- **Model Statistics**: Displays model accuracy and training data information
+- **Win Probability**: Shows confidence scores for each prediction with visual probability bars
+- **Modern UI**: Beautiful, polished design with team logos, smooth animations, and gradient backgrounds
+- **Model Statistics**: Displays model accuracy and training data information in the header
 - **Future Game Support**: Can predict games that haven't been played yet
+- **Responsive Design**: Fully responsive layout that works on desktop, tablet, and mobile
+- **Team Logos**: Uses local team logo assets for fast loading and offline support
 
 ## 🚀 Quick Start
 
@@ -136,9 +138,17 @@ nba-predictor/
 │       ├── team_stats_fetcher.py  # Stats fetching for future games
 │       └── data_pipeline.py   # Data processing
 ├── frontend/
+│   ├── public/
+│   │   └── assets/            # Team logo images (PNG/GIF)
 │   ├── src/
 │   │   ├── App.js             # Main React component
-│   │   └── App.css            # Styles
+│   │   ├── App.css            # Main application styles
+│   │   ├── components/        # React components
+│   │   │   ├── Header.js      # Header with model stats
+│   │   │   ├── Footer.js      # Footer component
+│   │   │   └── GameCard.js    # Individual game card
+│   │   └── utils/
+│   │       └── teamLogos.js  # Team logo mapping utilities
 │   └── package.json
 ├── notebooks/                 # Jupyter notebooks for analysis
 ├── requirements.txt           # Python dependencies
