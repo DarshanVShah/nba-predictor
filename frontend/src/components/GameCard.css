@@ -291,6 +291,18 @@
   box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
 }
 
+.no-clear-winner {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #718096;
+  font-style: italic;
+  text-align: center;
+  width: 100%;
+  padding: 0.5rem;
+  background: rgba(113, 128, 150, 0.1);
+  border-radius: 8px;
+}
+
 .prediction-error {
   margin-top: 1.5rem;
   padding-top: 1.5rem;

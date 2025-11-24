@@ -162,21 +162,66 @@ async def get_daily_games():
         formatted_games = []
         for game in games:
             try:
-                # Handle different game status formats
+                # Handle different game status formats and extract game time
                 status = getattr(game, 'status', 'Scheduled')
-                if status and isinstance(status, str) and 'T' in status:
-                    # Convert datetime string to readable format
+                game_time = None
+                
+                # Try to get game time from various possible fields
+                # Check for 'date' field (usually contains full datetime)
+                game_date_field = getattr(game, 'date', None)
+                if not game_date_field:
+                    # Try 'scheduled' field
+                    game_date_field = getattr(game, 'scheduled', None)
+                
+                if game_date_field:
                     try:
+                        # Convert to EST timezone
+                        est = pytz.timezone('US/Eastern')
                         from datetime import datetime as dt
-                        dt_obj = dt.fromisoformat(status.replace('Z', '+00:00'))
-                        status = dt_obj.strftime('%I:%M %p')
-                    except:
-                        pass
+                        
+                        if isinstance(game_date_field, str):
+                            # Parse ISO format datetime string
+                            if 'T' in game_date_field:
+                                try:
+                                    # Try parsing with timezone
+                                    if game_date_field.endswith('Z'):
+                                        dt_obj = dt.fromisoformat(game_date_field.replace('Z', '+00:00'))
+                                    elif '+' in game_date_field or game_date_field.count('-') > 2:
+                                        dt_obj = dt.fromisoformat(game_date_field)
+                                    else:
+                                        # No timezone, assume UTC
+                                        dt_obj = dt.fromisoformat(game_date_field)
+                                        dt_obj = pytz.utc.localize(dt_obj)
+                                    
+                                    # Convert to EST
+                                    if dt_obj.tzinfo is None:
+                                        dt_obj = pytz.utc.localize(dt_obj)
+                                    dt_est = dt_obj.astimezone(est)
+                                    game_time = dt_est.strftime('%I:%M %p').lstrip('0')
+                                except Exception as parse_error:
+                                    logger.warning(f"Could not parse datetime string {game_date_field}: {parse_error}")
+                                    game_time = None
+                            else:
+                                game_time = game_date_field
+                        elif hasattr(game_date_field, 'strftime'):
+                            # Already a datetime object
+                            if game_date_field.tzinfo is None:
+                                game_date_utc = pytz.utc.localize(game_date_field)
+                            else:
+                                game_date_utc = game_date_field
+                            dt_est = game_date_utc.astimezone(est)
+                            game_time = dt_est.strftime('%I:%M %p').lstrip('0')
+                    except Exception as e:
+                        logger.warning(f"Error parsing game time: {str(e)}, game_date_field: {game_date_field}")
+                        game_time = None
+                
+                # Use game time if available, otherwise use status
+                display_status = game_time if game_time else (status if status and status != 'Scheduled' else 'TBD')
                 
                 formatted_game = {
                     "home_team": game.home_team.abbreviation if hasattr(game, 'home_team') else 'UNK',
                     "away_team": game.visitor_team.abbreviation if hasattr(game, 'visitor_team') else 'UNK',
-                    "status": status
+                    "status": display_status
                 }
                 formatted_games.append(formatted_game)
             except Exception as e:

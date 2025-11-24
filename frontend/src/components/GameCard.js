@@ -126,10 +126,16 @@ const GameCard = ({ game, prediction, isPredicting, onPredict }) => {
             <span className="prediction-label">Predicted Winner</span>
           </div>
           <div className="prediction-result">
-            <span className="winner-team">{getTeamName(prediction.winner)}</span>
-            <span className="confidence-badge">
-              {(prediction.confidence * 100).toFixed(1)}% confidence
-            </span>
+            {prediction.confidence >= 0.45 && prediction.confidence <= 0.55 ? (
+              <span className="no-clear-winner">No Clear Winner - Too Close to Call</span>
+            ) : (
+              <>
+                <span className="winner-team">{getTeamName(prediction.winner)}</span>
+                <span className="confidence-badge">
+                  {(prediction.confidence * 100).toFixed(1)}% confidence
+                </span>
+              </>
+            )}
           </div>
         </div>
       )}
