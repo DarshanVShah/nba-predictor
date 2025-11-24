@@ -10,4 +10,5 @@ playwright==1.42.0
 beautifulsoup4==4.12.3
 python-dotenv==1.0.1
 pytz==2023.3
+xgboost==2.0.3
 gunicorn==21.2.0
