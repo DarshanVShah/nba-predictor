@@ -375,15 +375,40 @@ class NBAPredictor:
             # Make prediction
             prediction = self.model.predict(game_features_scaled)[0]
             
-            # Get proper probability/confidence
-            # Use decision_function and convert to probability-like score
-            decision_score = self.model.decision_function(game_features_scaled)[0]
+            # Get proper probability/confidence - use best available method
+            confidence = 0.5  # Default
             
-            # Convert decision function to a probability-like confidence (0-1)
-            # Using sigmoid-like transformation
-            confidence = 1 / (1 + np.exp(-decision_score))
-            # Normalize to make it more interpretable (0.5 = 50%, 0.7 = 70%, etc.)
-            confidence = max(0.5, min(0.95, 0.5 + (confidence - 0.5) * 0.9))
+            # Try predict_proba first (most accurate for most models)
+            if hasattr(self.model, 'predict_proba'):
+                try:
+                    proba = self.model.predict_proba(game_features_scaled)[0]
+                    # proba[0] is probability of class 0 (away wins), proba[1] is class 1 (home wins)
+                    if prediction == 1:  # Home wins
+                        confidence = proba[1]
+                    else:  # Away wins
+                        confidence = proba[0]
+                    logger.info(f"Using predict_proba: confidence = {confidence:.3f}")
+                except Exception as e:
+                    logger.warning(f"predict_proba failed: {e}, falling back to decision_function")
+            
+            # Fallback to decision_function if predict_proba not available
+            if confidence == 0.5 and hasattr(self.model, 'decision_function'):
+                try:
+                    decision_score = self.model.decision_function(game_features_scaled)[0]
+                    # Convert decision function to probability using sigmoid
+                    confidence = 1 / (1 + np.exp(-decision_score))
+                    # Adjust confidence to be more conservative (less extreme)
+                    # This helps with calibration - decision scores can be extreme
+                    if confidence > 0.5:
+                        confidence = 0.5 + (confidence - 0.5) * 0.85
+                    else:
+                        confidence = 0.5 - (0.5 - confidence) * 0.85
+                    logger.info(f"Using decision_function: confidence = {confidence:.3f}")
+                except Exception as e:
+                    logger.warning(f"decision_function failed: {e}")
+            
+            # Ensure confidence is in reasonable range
+            confidence = max(0.51, min(0.95, confidence))
             
             winner = home_team if prediction == 1 else away_team
             
@@ -452,10 +477,42 @@ class NBAPredictor:
                 )
             
             # Calculate rolling averages (10-game window) for home team
-            home_rolling = home_games.mean(numeric_only=True)
+            # Use weighted average - more recent games weighted higher
+            try:
+                if len(home_games) > 1:
+                    home_weights = np.linspace(0.5, 1.0, len(home_games))
+                    home_numeric = home_games.select_dtypes(include=[np.number])
+                    if not home_numeric.empty:
+                        # Reshape weights to multiply correctly
+                        weights_reshaped = home_weights.reshape(-1, 1)
+                        weighted_sum = (home_numeric * weights_reshaped).sum()
+                        home_rolling = weighted_sum / home_weights.sum()
+                    else:
+                        home_rolling = home_games.mean(numeric_only=True)
+                else:
+                    home_rolling = home_games.mean(numeric_only=True)
+            except Exception as e:
+                logger.warning(f"Error calculating weighted average for home team: {e}, using simple mean")
+                home_rolling = home_games.mean(numeric_only=True)
             
             # Calculate rolling averages (10-game window) for away team
-            away_rolling = away_games.mean(numeric_only=True)
+            # Use weighted average - more recent games weighted higher
+            try:
+                if len(away_games) > 1:
+                    away_weights = np.linspace(0.5, 1.0, len(away_games))
+                    away_numeric = away_games.select_dtypes(include=[np.number])
+                    if not away_numeric.empty:
+                        # Reshape weights to multiply correctly
+                        weights_reshaped = away_weights.reshape(-1, 1)
+                        weighted_sum = (away_numeric * weights_reshaped).sum()
+                        away_rolling = weighted_sum / away_weights.sum()
+                    else:
+                        away_rolling = away_games.mean(numeric_only=True)
+                else:
+                    away_rolling = away_games.mean(numeric_only=True)
+            except Exception as e:
+                logger.warning(f"Error calculating weighted average for away team: {e}, using simple mean")
+                away_rolling = away_games.mean(numeric_only=True)
             
             # Construct features matching the merged dataset structure
             # Predictors can be:
@@ -466,6 +523,25 @@ class NBAPredictor:
             # - With _opp_10_x: fg_opp_10_x (home team's opponent stats rolling average)
             # - With _opp_10_y: fg_opp_10_y (away team's opponent stats rolling average)
             # - home_next: home court advantage
+            
+            # Calculate additional context features for better accuracy
+            home_recent_form = home_games['won'].mean() if 'won' in home_games.columns else 0.5
+            away_recent_form = away_games['won'].mean() if 'won' in away_games.columns else 0.5
+            
+            # Calculate momentum (trend in last 5 games vs previous 5)
+            if len(home_games) >= 5:
+                home_recent_5 = home_games.tail(5)['won'].mean() if 'won' in home_games.columns else 0.5
+                home_prev_5 = home_games.head(5)['won'].mean() if len(home_games) >= 10 and 'won' in home_games.columns else home_recent_5
+                home_momentum = home_recent_5 - home_prev_5
+            else:
+                home_momentum = 0.0
+            
+            if len(away_games) >= 5:
+                away_recent_5 = away_games.tail(5)['won'].mean() if 'won' in away_games.columns else 0.5
+                away_prev_5 = away_games.head(5)['won'].mean() if len(away_games) >= 10 and 'won' in away_games.columns else away_recent_5
+                away_momentum = away_recent_5 - away_prev_5
+            else:
+                away_momentum = 0.0
             
             game_features = {}
             
@@ -522,11 +598,43 @@ class NBAPredictor:
                     if feature in home_rolling.index:
                         game_features[feature] = home_rolling[feature]
                     else:
-                        logger.warning(f"Feature {feature} not found in home team data")
-                        game_features[feature] = 0.0
+                        # Try smart defaults based on feature name
+                        if 'win_pct' in feature.lower() or 'win%' in feature.lower():
+                            game_features[feature] = home_recent_form
+                        elif 'momentum' in feature.lower():
+                            game_features[feature] = home_momentum
+                        else:
+                            logger.warning(f"Feature {feature} not found in home team data, using 0.0")
+                            game_features[feature] = 0.0
+            
+            # Ensure all predictors are present and in correct order
+            for pred in self.predictors:
+                if pred not in game_features:
+                    # Fill missing predictors with smart defaults
+                    if 'win_pct' in pred.lower() or 'win%' in pred.lower():
+                        if '_x' in pred or 'home' in pred.lower():
+                            game_features[pred] = home_recent_form
+                        elif '_y' in pred or 'away' in pred.lower():
+                            game_features[pred] = away_recent_form
+                        else:
+                            game_features[pred] = 0.5
+                    elif 'momentum' in pred.lower():
+                        if '_x' in pred or 'home' in pred.lower():
+                            game_features[pred] = home_momentum
+                        elif '_y' in pred or 'away' in pred.lower():
+                            game_features[pred] = away_momentum
+                        else:
+                            game_features[pred] = 0.0
+                    else:
+                        game_features[pred] = 0.0
             
             logger.info(f"Calculated {len(game_features)} features for future game")
-            return pd.DataFrame([game_features])
+            game_features_df = pd.DataFrame([game_features])
+            
+            # Ensure correct column order
+            game_features_df = game_features_df[self.predictors] if all(p in game_features_df.columns for p in self.predictors) else game_features_df
+            
+            return game_features_df
             
         except Exception as e:
             logger.error(f"Error calculating future game features: {str(e)}")
