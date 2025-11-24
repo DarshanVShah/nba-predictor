@@ -1,7 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+import pytz
 from backend.utils.predictor import NBAPredictor
 from backend.utils.data_pipeline import update_data
 import logging
@@ -121,26 +122,39 @@ async def get_daily_games():
     Fetch today's NBA games using the balldontlie API
     """
     try:
-        # Get today's date
-        today = datetime.now().strftime("%Y-%m-%d")
-        logger.info(f"Fetching today's games for date: {today}")
+        # Get today's date in EST timezone
+        est = pytz.timezone('US/Eastern')
+        today_est = datetime.now(est).strftime("%Y-%m-%d")
+        logger.info(f"Fetching today's games for date (EST): {today_est}")
         
-        # Get games using the API
+        # Get games using the API (try today and tomorrow in case of timezone issues)
         try:
-            response = api.nba.games.list(dates=[today])
+            # Also try tomorrow in EST in case games are scheduled for tomorrow
+            tomorrow_est = (datetime.now(est) + timedelta(days=1)).strftime("%Y-%m-%d")
+            response = api.nba.games.list(dates=[today_est, tomorrow_est])
             games = response.data if hasattr(response, 'data') else []
+            
+            # Filter to only today's games
+            today_games = []
+            for game in games:
+                game_date = getattr(game, 'date', '')
+                if isinstance(game_date, str) and game_date.startswith(today_est):
+                    today_games.append(game)
+                elif hasattr(game, 'date') and str(game.date).startswith(today_est):
+                    today_games.append(game)
+            games = today_games
         except Exception as api_error:
             logger.error(f"API error: {str(api_error)}")
             # Return empty games list instead of failing
             return {
-                "date": today,
+                "date": today_est,
                 "games": []
             }
         
         if not games:
-            logger.info(f"No games found for {today}")
+            logger.info(f"No games found for {today_est}")
             return {
-                "date": today,
+                "date": today_est,
                 "games": []
             }
 
@@ -170,7 +184,7 @@ async def get_daily_games():
                 continue
 
         return {
-            "date": today,
+            "date": today_est,
             "games": formatted_games
         }
     except Exception as e:

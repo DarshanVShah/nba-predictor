@@ -6,6 +6,7 @@ import joblib
 import os
 import logging
 from datetime import datetime
+import pytz
 from backend.config import DATA_FILE_PATH
 
 # Set up logging
@@ -142,11 +143,15 @@ class NBAPredictor:
             
             logger.info(f"Predicting game: {home_team} vs {away_team} on {date}")
             
+            # Use EST timezone for date comparison
+            est = pytz.timezone('US/Eastern')
             game_date = pd.to_datetime(date)
-            today = pd.to_datetime(datetime.now().date())
+            today_est = pd.to_datetime(datetime.now(est).date())
             
-            # Check if this is a future game
-            is_future_game = game_date > today
+            # Check if this is a future game (using EST)
+            # Treat today's games as future if not in dataset (games scheduled for today)
+            is_future_game = game_date >= today_est
+            logger.info(f"Game date: {game_date}, Today (EST): {today_est}, Is future: {is_future_game}")
             
             # Try to find matching row in merged dataset
             # The merged dataset has team_x (home) and team_y (away) with date_next
@@ -158,11 +163,15 @@ class NBAPredictor:
                                    'date_next' in self.df.columns)
             
             if has_merged_structure:
-                # Look for exact match
+                # Convert date_next to datetime if it's not already
+                if self.df['date_next'].dtype != 'datetime64[ns]':
+                    self.df['date_next'] = pd.to_datetime(self.df['date_next'])
+                
+                # Look for exact match (convert to date for comparison to ignore time)
                 matches = self.df[
                     (self.df['team_x'] == home_team) & 
                     (self.df['team_y'] == away_team) &
-                    (self.df['date_next'] == game_date)
+                    (self.df['date_next'].dt.date == game_date.date())
                 ]
                 
                 if len(matches) > 0:
@@ -173,7 +182,7 @@ class NBAPredictor:
                     matches = self.df[
                         (self.df['team_x'] == away_team) & 
                         (self.df['team_y'] == home_team) &
-                        (self.df['date_next'] == game_date)
+                        (self.df['date_next'].dt.date == game_date.date())
                     ]
                     if len(matches) > 0:
                         matching_row = matches.iloc[0]
@@ -222,6 +231,10 @@ class NBAPredictor:
                 # Historical game but not in merged dataset - try to find closest match
                 logger.info("Historical game not in merged dataset - finding closest match...")
                 if 'date_next' in self.df.columns:
+                    # Convert date_next to datetime if needed
+                    if self.df['date_next'].dtype != 'datetime64[ns]':
+                        self.df['date_next'] = pd.to_datetime(self.df['date_next'])
+                    
                     # Find closest date
                     date_diff = (self.df['date_next'] - game_date).abs()
                     closest_idx = date_diff.idxmin()
@@ -233,11 +246,25 @@ class NBAPredictor:
                             game_features = pd.DataFrame([matching_row[self.predictors]])
                             logger.info("Using closest matching row")
                         else:
-                            raise ValueError(f"No matching game found for {home_team} vs {away_team} on {date}")
+                            # Teams don't match - treat as future game if raw_df available
+                            logger.info("Teams don't match, treating as future game...")
+                            if self.raw_df is not None:
+                                game_features = self._calculate_future_game_features(home_team, away_team, game_date)
+                            else:
+                                raise ValueError(f"No matching game found for {home_team} vs {away_team} on {date}")
                     else:
-                        raise ValueError(f"No matching game found for {home_team} vs {away_team} on {date}")
+                        # Date too far - treat as future game if raw_df available
+                        logger.info("Date too far, treating as future game...")
+                        if self.raw_df is not None:
+                            game_features = self._calculate_future_game_features(home_team, away_team, game_date)
+                        else:
+                            raise ValueError(f"No matching game found for {home_team} vs {away_team} on {date}")
                 else:
-                    raise ValueError(f"No matching game found and cannot calculate features")
+                    # No date_next column - treat as future game if raw_df available
+                    if self.raw_df is not None:
+                        game_features = self._calculate_future_game_features(home_team, away_team, game_date)
+                    else:
+                        raise ValueError(f"No matching game found and cannot calculate features")
             else:
                 # This should not happen, but provide a helpful error
                 error_msg = (
