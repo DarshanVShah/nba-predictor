@@ -336,6 +336,121 @@
   color: #718096;
 }
 
+/* View Mode Toggle */
+.view-mode-toggle {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+  background: white;
+  padding: 0.5rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.view-mode-toggle button {
+  flex: 1;
+  padding: 0.75rem 1.5rem;
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  font-weight: 600;
+  color: #718096;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.view-mode-toggle button:hover {
+  background: #f7fafc;
+  color: #667eea;
+}
+
+.view-mode-toggle button.active {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+/* Date Selector Section */
+.date-selector-section {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  flex-wrap: wrap;
+}
+
+.date-label {
+  font-weight: 600;
+  color: #1a202c;
+  font-size: 1rem;
+}
+
+.date-input {
+  padding: 0.75rem 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #1a202c;
+  background: white;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  flex: 1;
+  min-width: 200px;
+}
+
+.date-input:hover {
+  border-color: #667eea;
+}
+
+.date-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.clear-date-button {
+  padding: 0.75rem 1.25rem;
+  background: #f7fafc;
+  color: #718096;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.clear-date-button:hover {
+  background: #edf2f7;
+  border-color: #cbd5e0;
+  color: #4a5568;
+}
+
+.no-date-selected {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: #718096;
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  border-radius: 20px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.no-date-selected p {
+  margin: 0.5rem 0;
+  font-size: 1.1rem;
+}
+
+.date-hint {
+  font-size: 0.9rem;
+  color: #a0aec0;
+  font-style: italic;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
   .prediction-history {
@@ -352,6 +467,19 @@
 
   .stat-value {
     font-size: 2rem;
+  }
+
+  .date-selector-section {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .date-input {
+    min-width: 100%;
+  }
+
+  .view-mode-toggle {
+    flex-direction: column;
   }
 }
 
