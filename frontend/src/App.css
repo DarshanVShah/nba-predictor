@@ -91,8 +91,39 @@ body {
 /* Controls Section */
 .controls-section {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 2rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.controls-left {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.tab-button {
+  padding: 0.75rem 1.5rem;
+  background: rgba(255, 255, 255, 0.9);
+  color: #667eea;
+  border: 2px solid #667eea;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.tab-button:hover {
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.tab-button.active {
+  background: #667eea;
+  color: white;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
 }
 
 .refresh-button {

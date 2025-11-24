@@ -9,6 +9,7 @@ import React, { useState, useEffect } from 'react';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import GameCard from './components/GameCard';
+import PredictionHistory from './components/PredictionHistory';
 import './App.css';
 
 // API Configuration
@@ -30,6 +31,7 @@ function App() {
   
   const [selectedDate, setSelectedDate] = useState(getTodayEST());
   const [predictingGames, setPredictingGames] = useState(new Set());
+  const [showHistory, setShowHistory] = useState(false);
 
   /**
    * Fetch model statistics from the backend
@@ -183,64 +185,95 @@ function App() {
 
         {/* Controls Bar */}
         <div className="controls-section">
-          <button 
-            className="refresh-button"
-            onClick={() => fetchDailyGames()} 
-            disabled={loading}
-          >
-            {loading ? (
-              <>
-                <span className="button-spinner"></span>
-                <span>Refreshing...</span>
-              </>
-            ) : (
-              <>
-                <span>Refresh Games</span>
-              </>
-            )}
-          </button>
+          <div className="controls-left">
+            <button 
+              className={`tab-button ${!showHistory ? 'active' : ''}`}
+              onClick={() => setShowHistory(false)}
+            >
+              Today's Games
+            </button>
+            <button 
+              className={`tab-button ${showHistory ? 'active' : ''}`}
+              onClick={() => setShowHistory(true)}
+            >
+              Prediction History
+            </button>
+          </div>
+          {!showHistory && (
+            <button 
+              className="refresh-button"
+              onClick={() => fetchDailyGames()} 
+              disabled={loading}
+            >
+              {loading ? (
+                <>
+                  <span className="button-spinner"></span>
+                  <span>Refreshing...</span>
+                </>
+              ) : (
+                <>
+                  <span>🔄</span>
+                  <span>Refresh Games</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
 
-        {/* Loading State */}
-        {loading && games.length === 0 ? (
-          <div className="loading-state">
-            <div className="loading-spinner-large"></div>
-            <p className="loading-text">Loading today's games...</p>
-            <p className="loading-subtext">Fetching predictions from AI model</p>
-          </div>
-        ) : games.length === 0 ? (
-          /* No Games State */
-          <div className="empty-state">
-            <div className="empty-icon">📅</div>
-            <h2 className="empty-title">No Games Scheduled</h2>
-            <p className="empty-description">
-              There are no NBA games scheduled for today.
-            </p>
-          </div>
+        {/* Content Area */}
+        {showHistory ? (
+          <PredictionHistory />
         ) : (
-          /* Games List */
           <>
-            <div className="games-section-header">
-              <h2 className="section-title">Today's Games</h2>
-              <p className="section-date">{formatDate(selectedDate)}</p>
-            </div>
-            
-            <div className="games-grid">
-              {games.map((game, index) => {
-                const gameKey = `${game.home_team}-${game.away_team}`;
-                const isPredicting = predictingGames.has(gameKey);
-                const prediction = predictions[gameKey];
+        {/* Content Area */}
+        {showHistory ? (
+          <PredictionHistory />
+        ) : (
+          <>
+            {/* Loading State */}
+            {loading && games.length === 0 ? (
+              <div className="loading-state">
+                <div className="loading-spinner-large"></div>
+                <p className="loading-text">Loading today's games...</p>
+                <p className="loading-subtext">Fetching predictions from AI model</p>
+              </div>
+            ) : games.length === 0 ? (
+              /* No Games State */
+              <div className="empty-state">
+                <div className="empty-icon">📅</div>
+                <h2 className="empty-title">No Games Scheduled</h2>
+                <p className="empty-description">
+                  There are no NBA games scheduled for today.
+                </p>
+              </div>
+            ) : (
+              /* Games List */
+              <>
+                <div className="games-section-header">
+                  <h2 className="section-title">Today's Games</h2>
+                  <p className="section-date">{formatDate(selectedDate)}</p>
+                </div>
                 
-                return (
-                  <GameCard
-                    key={index}
-                    game={game}
-                    prediction={prediction}
-                    isPredicting={isPredicting}
-                  />
-                );
-              })}
-            </div>
+                <div className="games-grid">
+                  {games.map((game, index) => {
+                    const gameKey = `${game.home_team}-${game.away_team}`;
+                    const isPredicting = predictingGames.has(gameKey);
+                    const prediction = predictions[gameKey];
+                    
+                    return (
+                      <GameCard
+                        key={index}
+                        game={game}
+                        prediction={prediction}
+                        isPredicting={isPredicting}
+                      />
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </>
+        )}
           </>
         )}
       </main>
