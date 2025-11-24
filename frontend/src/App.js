@@ -170,7 +170,6 @@ function App() {
         {error && (
           <div className="error-banner">
             <div className="error-content">
-              <span className="error-icon">⚠️</span>
               <span className="error-message">{error}</span>
               <button 
                 onClick={() => fetchDailyGames()} 
@@ -196,7 +195,6 @@ function App() {
               </>
             ) : (
               <>
-                <span>🔄</span>
                 <span>Refresh Games</span>
               </>
             )}
