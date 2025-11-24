@@ -14,6 +14,7 @@ const PredictionHistory = () => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
     fetchHistory();
@@ -35,6 +36,28 @@ const PredictionHistory = () => {
       console.error('Error fetching prediction history:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const triggerUpdate = async () => {
+    setUpdating(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/trigger-prediction-update`, {
+        method: 'POST'
+      });
+      if (!response.ok) {
+        throw new Error('Failed to trigger update');
+      }
+      const data = await response.json();
+      // Refresh history after update
+      await fetchHistory();
+      alert(`Update complete! Updated ${data.updated} out of ${data.total} predictions.`);
+    } catch (err) {
+      setError(err.message);
+      console.error('Error triggering update:', err);
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -77,7 +100,26 @@ const PredictionHistory = () => {
       {/* Statistics Section */}
       {stats && (
         <div className="history-stats">
-          <h2 className="stats-title">Prediction Statistics</h2>
+          <div className="stats-header">
+            <h2 className="stats-title">Prediction Statistics</h2>
+            <button 
+              className="update-button"
+              onClick={triggerUpdate}
+              disabled={updating}
+            >
+              {updating ? (
+                <>
+                  <span className="button-spinner-small"></span>
+                  <span>Updating...</span>
+                </>
+              ) : (
+                <>
+                  <span>🔄</span>
+                  <span>Update Results</span>
+                </>
+              )}
+            </button>
+          </div>
           <div className="stats-grid">
             <div className="stat-card">
               <div className="stat-value">{stats.total_predictions}</div>
