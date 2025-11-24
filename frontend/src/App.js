@@ -55,12 +55,21 @@ function App() {
           });
           
           if (!predResponse.ok) {
-            throw new Error('Prediction failed');
+            // Try to get error message from response
+            let errorMessage = 'Prediction failed';
+            try {
+              const errorData = await predResponse.json();
+              errorMessage = errorData.detail || errorData.message || errorMessage;
+            } catch (e) {
+              errorMessage = `HTTP ${predResponse.status}: ${predResponse.statusText}`;
+            }
+            console.error(`Error predicting game ${gameKey}:`, errorMessage);
+            throw new Error(errorMessage);
           }
           
           return predResponse.json();
         } catch (err) {
-          console.error(`Error predicting game ${gameKey}:`, err);
+          console.error(`Error predicting game ${gameKey}:`, err.message || err);
           return null;
         } finally {
           setPredictingGames(prev => {

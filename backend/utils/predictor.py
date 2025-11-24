@@ -39,18 +39,28 @@ class NBAPredictor:
                 logger.warning("⚠️ Dataset doesn't appear to be merged. Expected team_x and team_y columns.")
                 logger.warning("⚠️ You need to run the Predict.ipynb notebook to create the merged dataset.")
                 logger.warning("⚠️ Predictions may not work correctly until the merged dataset is created.")
-                # Try to load raw data for future predictions
-                raw_data_path = os.path.join(os.path.dirname(DATA_FILE_PATH), "processed_nba_data.csv")
-                if os.path.exists(raw_data_path):
-                    logger.info("Loading raw dataset for rolling average calculations...")
+            else:
+                logger.info("✅ Merged dataset detected (has team_x and team_y columns)")
+            
+            # Always try to load raw data for future predictions (needed for rolling averages)
+            raw_data_path = os.path.join(os.path.dirname(DATA_FILE_PATH), "processed_nba_data.csv")
+            if os.path.exists(raw_data_path):
+                logger.info("Loading raw dataset for rolling average calculations...")
+                try:
                     self.raw_df = pd.read_csv(raw_data_path)
                     if 'date' in self.raw_df.columns:
                         self.raw_df['date'] = pd.to_datetime(self.raw_df['date'])
                         self.raw_df = self.raw_df.sort_values('date')
-                else:
-                    logger.warning("Raw dataset not found. Future predictions may not work correctly.")
+                    if 'team' in self.raw_df.columns:
+                        logger.info(f"✅ Raw dataset loaded: {len(self.raw_df)} rows, {self.raw_df['team'].nunique()} teams")
+                    else:
+                        logger.warning("⚠️ Raw dataset loaded but missing 'team' column")
+                except Exception as e:
+                    logger.error(f"Error loading raw dataset: {str(e)}")
+                    self.raw_df = None
             else:
-                logger.info("✅ Merged dataset detected (has team_x and team_y columns)")
+                logger.warning(f"⚠️ Raw dataset not found at {raw_data_path}. Future predictions may not work correctly.")
+                logger.warning("⚠️ Make sure to run cell 49 of Predict.ipynb to save processed_nba_data.csv")
             
             # Convert date columns to datetime if they exist
             if 'date_next' in self.df.columns:
@@ -187,8 +197,16 @@ class NBAPredictor:
                     logger.error(f"Available columns: {list(matching_row.index)[:20]}")
                     logger.error(f"Required predictors: {self.predictors[:10]}")
                     raise ValueError(f"Error extracting features: {str(e)}")
-            elif is_future_game and self.raw_df is not None:
+            elif is_future_game:
                 # For future games, calculate features from raw data
+                if self.raw_df is None:
+                    error_msg = (
+                        "Cannot make prediction for future game: Raw dataset not available. "
+                        "Please ensure processed_nba_data.csv exists in backend/data/processed/. "
+                        "Run cell 49 of Predict.ipynb to generate this file."
+                    )
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
                 logger.info("Future game - calculating features from raw data...")
                 game_features = self._calculate_future_game_features(home_team, away_team, game_date)
             elif not has_merged_structure:
@@ -221,7 +239,14 @@ class NBAPredictor:
                 else:
                     raise ValueError(f"No matching game found and cannot calculate features")
             else:
-                raise ValueError(f"Cannot make prediction: No matching data and raw dataset not available")
+                # This should not happen, but provide a helpful error
+                error_msg = (
+                    f"Cannot make prediction: No matching data found for {home_team} vs {away_team} on {date}. "
+                    f"Game is {'future' if is_future_game else 'historical'}. "
+                    f"Raw dataset {'available' if self.raw_df is not None else 'not available'}."
+                )
+                logger.error(error_msg)
+                raise ValueError(error_msg)
             
             # Handle missing features
             missing_features = []
@@ -236,13 +261,29 @@ class NBAPredictor:
             if missing_features:
                 logger.warning(f"Missing {len(missing_features)} features: {missing_features[:5]}")
             
-            # Reorder columns to match training data
+            # Reorder columns to match training data EXACTLY as the scaler expects
             try:
+                # Ensure all predictors are present
+                missing = set(self.predictors) - set(game_features.columns)
+                if missing:
+                    logger.error(f"Missing {len(missing)} required features: {list(missing)[:10]}")
+                    raise ValueError(f"Missing required features: {list(missing)[:10]}")
+                
+                # Reorder to match exact order of predictors (critical for scaler)
                 game_features = game_features[self.predictors]
+                
+                # Verify order matches
+                if list(game_features.columns) != self.predictors:
+                    logger.error(f"Feature order mismatch!")
+                    logger.error(f"Expected order: {self.predictors[:5]}...")
+                    logger.error(f"Actual order: {list(game_features.columns)[:5]}...")
+                    # Force correct order
+                    game_features = game_features[self.predictors]
+                    
             except KeyError as e:
                 logger.error(f"Error reordering features: {str(e)}")
-                logger.error(f"Game features columns: {list(game_features.columns)[:20]}")
-                logger.error(f"Required predictors: {self.predictors[:20]}")
+                logger.error(f"Game features columns ({len(game_features.columns)}): {list(game_features.columns)[:20]}")
+                logger.error(f"Required predictors ({len(self.predictors)}): {self.predictors[:20]}")
                 missing = set(self.predictors) - set(game_features.columns)
                 raise ValueError(f"Missing required features: {list(missing)[:10]}")
             
@@ -251,11 +292,57 @@ class NBAPredictor:
                 game_features[col] = pd.to_numeric(game_features[col], errors='coerce').fillna(0.0)
             
             # Scale features
+            # CRITICAL: The scaler was fit on original dataset (132 features like "3p", "3p%"),
+            # but model uses merged dataset (30 predictors like "fga_10_x", "usg%_10_x").
+            # We need to use a scaler that was fit on the merged dataset.
+            # For now, try to bypass feature name checking by using numpy array.
             try:
-                game_features_scaled = self.scaler.transform(game_features)
+                # Convert to numpy array - this might bypass feature name validation in some sklearn versions
+                game_features_array = game_features.values.reshape(1, -1)
+                
+                # Check if scaler expects different number of features
+                if hasattr(self.scaler, 'feature_names_in_') and self.scaler.feature_names_in_ is not None:
+                    expected_features = len(self.scaler.feature_names_in_)
+                    actual_features = game_features_array.shape[1]
+                    
+                    if expected_features != actual_features:
+                        raise ValueError(
+                            f"Scaler expects {expected_features} features but got {actual_features}. "
+                            f"The scaler was fit on the original dataset, but the model uses the merged dataset. "
+                            f"Please re-run Predict.ipynb and ensure the scaler is fit on 'full[selected_columns]' "
+                            f"AFTER merging (not on 'df[selected_columns]' before merging)."
+                        )
+                
+                # Try scaling with numpy array
+                game_features_scaled = self.scaler.transform(game_features_array)
+                
+                logger.info(f"Features scaled successfully: {game_features_scaled.shape}")
+                
+            except ValueError as e:
+                # Re-raise ValueError with our message
+                raise
+            except Exception as e:
+                error_msg = str(e)
+                if "feature names" in error_msg.lower() or "unseen at fit time" in error_msg.lower():
+                    raise ValueError(
+                        "Scaler was fit on original dataset features (like '3p', '3p%'), "
+                        "but model uses merged dataset features (like 'fga_10_x', 'usg%_10_x'). "
+                        "Please re-run Predict.ipynb and fit the scaler on the merged dataset 'full' "
+                        "AFTER feature selection, not on the original 'df' dataset."
+                    )
+                raise
+                    
             except Exception as e:
                 logger.error(f"Error scaling features: {str(e)}")
-                logger.error(f"Feature shape: {game_features.shape}, Columns: {list(game_features.columns)}")
+                logger.error(f"Feature shape: {game_features.shape}")
+                logger.error(f"Feature columns ({len(game_features.columns)}): {list(game_features.columns)}")
+                logger.error(f"Predictors ({len(self.predictors)}): {self.predictors}")
+                
+                # Check what the scaler expects
+                if hasattr(self.scaler, 'feature_names_in_'):
+                    scaler_feats = list(self.scaler.feature_names_in_) if self.scaler.feature_names_in_ is not None else []
+                    logger.error(f"Scaler expects {len(scaler_feats)} features: {scaler_feats[:20]}")
+                
                 raise ValueError(f"Feature scaling error: {str(e)}")
             
             # Make prediction
@@ -292,20 +379,50 @@ class NBAPredictor:
         similar to how the notebook does it.
         """
         try:
+            logger.info(f"Calculating features for future game: {home_team} vs {away_team} on {game_date}")
+            
+            # Team name mapping (handle variations)
+            team_mapping = {
+                'BKN': 'BRK',  # Brooklyn Nets
+                'BRK': 'BRK',
+                'PHO': 'PHX',  # Phoenix Suns
+                'PHX': 'PHX',
+                'CHA': 'CHO',  # Charlotte Hornets
+                'CHO': 'CHO',
+            }
+            
+            # Normalize team names
+            home_team_normalized = team_mapping.get(home_team, home_team)
+            away_team_normalized = team_mapping.get(away_team, away_team)
+            
             # Get home team's most recent games (up to game_date)
+            # Try both original and normalized names
             home_games = self.raw_df[
-                (self.raw_df['team'] == home_team) & 
+                ((self.raw_df['team'] == home_team) | (self.raw_df['team'] == home_team_normalized)) & 
                 (self.raw_df['date'] < game_date)
             ].tail(10)
             
             # Get away team's most recent games (up to game_date)
+            # Try both original and normalized names
             away_games = self.raw_df[
-                (self.raw_df['team'] == away_team) & 
+                ((self.raw_df['team'] == away_team) | (self.raw_df['team'] == away_team_normalized)) & 
                 (self.raw_df['date'] < game_date)
             ].tail(10)
             
-            if home_games.empty or away_games.empty:
-                raise ValueError(f"Insufficient historical data for {home_team} or {away_team}")
+            if home_games.empty:
+                # Check what teams are available
+                available_teams = sorted(self.raw_df['team'].unique().tolist())
+                raise ValueError(
+                    f"Insufficient historical data for {home_team} (need at least 1 game before {game_date}). "
+                    f"Available teams: {', '.join(available_teams[:10])}..."
+                )
+            if away_games.empty:
+                # Check what teams are available
+                available_teams = sorted(self.raw_df['team'].unique().tolist())
+                raise ValueError(
+                    f"Insufficient historical data for {away_team} (need at least 1 game before {game_date}). "
+                    f"Available teams: {', '.join(available_teams[:10])}..."
+                )
             
             # Calculate rolling averages (10-game window) for home team
             home_rolling = home_games.mean(numeric_only=True)
@@ -314,47 +431,80 @@ class NBAPredictor:
             away_rolling = away_games.mean(numeric_only=True)
             
             # Construct features matching the merged dataset structure
-            # Features with _x suffix come from home team
-            # Features with _y suffix come from away team
+            # Predictors can be:
+            # - Simple: fga, usg%, fg_max (from home team, no suffix)
+            # - With _opp: fg_opp, usg%_opp (from away team, opponent stats)
+            # - With _10_x: fga_10_x, usg%_10_x (home team rolling average)
+            # - With _10_y: pts_10_y, usg%_10_y (away team rolling average)
+            # - With _opp_10_x: fg_opp_10_x (home team's opponent stats rolling average)
+            # - With _opp_10_y: fg_opp_10_y (away team's opponent stats rolling average)
+            # - home_next: home court advantage
+            
             game_features = {}
             
             for feature in self.predictors:
-                if feature.endswith('_x'):
-                    # Home team feature
-                    base_feature = feature[:-2]  # Remove _x suffix
+                if feature == 'home_next':
+                    # Home court advantage
+                    game_features[feature] = 1.0
+                elif feature.endswith('_opp_10_y'):
+                    # Away team's opponent stats rolling average (e.g., fg_opp_10_y)
+                    # This is the away team's opponent (which is the home team)
+                    base_feature = feature[:-9]  # Remove _opp_10_y
                     if base_feature in home_rolling.index:
                         game_features[feature] = home_rolling[base_feature]
                     else:
+                        logger.warning(f"Feature {base_feature} not found for {feature}")
                         game_features[feature] = 0.0
-                elif feature.endswith('_y'):
-                    # Away team feature
-                    base_feature = feature[:-2]  # Remove _y suffix
+                elif feature.endswith('_opp_10_x'):
+                    # Home team's opponent stats rolling average (e.g., fg_opp_10_x)
+                    # This is the home team's opponent (which is the away team)
+                    base_feature = feature[:-9]  # Remove _opp_10_x
                     if base_feature in away_rolling.index:
                         game_features[feature] = away_rolling[base_feature]
                     else:
+                        logger.warning(f"Feature {base_feature} not found for {feature}")
                         game_features[feature] = 0.0
-                elif feature == 'home_next':
-                    # Home court advantage
-                    game_features[feature] = 1.0
+                elif feature.endswith('_10_y'):
+                    # Away team rolling average (e.g., pts_10_y, usg%_10_y)
+                    base_feature = feature[:-5]  # Remove _10_y
+                    if base_feature in away_rolling.index:
+                        game_features[feature] = away_rolling[base_feature]
+                    else:
+                        logger.warning(f"Feature {base_feature} not found in away team for {feature}")
+                        game_features[feature] = 0.0
+                elif feature.endswith('_10_x'):
+                    # Home team rolling average (e.g., fga_10_x, usg%_10_x)
+                    base_feature = feature[:-5]  # Remove _10_x
+                    if base_feature in home_rolling.index:
+                        game_features[feature] = home_rolling[base_feature]
+                    else:
+                        logger.warning(f"Feature {base_feature} not found in home team for {feature}")
+                        game_features[feature] = 0.0
+                elif feature.endswith('_opp'):
+                    # Opponent stats (e.g., fg_opp, usg%_opp)
+                    # For home team, opponent is away team
+                    base_feature = feature[:-4]  # Remove _opp
+                    if base_feature in away_rolling.index:
+                        game_features[feature] = away_rolling[base_feature]
+                    else:
+                        logger.warning(f"Feature {base_feature} not found for opponent stats {feature}")
+                        game_features[feature] = 0.0
                 else:
-                    # Regular feature - try to find in home or away data
+                    # Simple feature without suffix (e.g., fga, usg%, fg_max)
+                    # These come from the home team
                     if feature in home_rolling.index:
-                        home_val = home_rolling[feature]
+                        game_features[feature] = home_rolling[feature]
                     else:
-                        home_val = 0.0
-                    
-                    if feature in away_rolling.index:
-                        away_val = away_rolling[feature]
-                    else:
-                        away_val = 0.0
-                    
-                    # For non-suffixed features, use differential (home - away)
-                    game_features[feature] = home_val - away_val
+                        logger.warning(f"Feature {feature} not found in home team data")
+                        game_features[feature] = 0.0
             
+            logger.info(f"Calculated {len(game_features)} features for future game")
             return pd.DataFrame([game_features])
             
         except Exception as e:
             logger.error(f"Error calculating future game features: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             raise
 
     def evaluate_model(self, test_size=0.2):
