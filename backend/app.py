@@ -6,6 +6,7 @@ import pytz
 from backend.utils.predictor import NBAPredictor
 from backend.utils.data_pipeline import update_data
 from backend.utils.prediction_storage import save_prediction, get_prediction_history, get_prediction_stats, update_prediction_result
+from backend.utils.game_result_updater import update_predictions_with_results
 import logging
 import os
 import pandas as pd
@@ -13,6 +14,8 @@ from balldontlie import BalldontlieAPI
 import asyncio
 from backend.config import DATA_FILE_PATH
 from dotenv import load_dotenv
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 # Load environment variables
 load_dotenv()
@@ -51,6 +54,33 @@ try:
 except Exception as e:
     logger.error(f"Error initializing components: {str(e)}")
     predictor = None
+
+# Initialize background scheduler for updating predictions
+scheduler = BackgroundScheduler()
+scheduler.start()
+
+# Schedule prediction result updates
+# Run every hour to check for completed games
+scheduler.add_job(
+    update_predictions_with_results,
+    trigger=CronTrigger(minute=0),  # Run at the top of every hour
+    id='update_predictions',
+    name='Update predictions with game results',
+    replace_existing=True
+)
+
+# Also run on startup to catch any missed updates (run after a short delay to let server start)
+from datetime import datetime as dt
+scheduler.add_job(
+    update_predictions_with_results,
+    trigger='date',
+    run_date=dt.now() + timedelta(seconds=30),  # Run 30 seconds after startup
+    id='initial_update',
+    name='Initial prediction update',
+    replace_existing=True
+)
+
+logger.info("Background scheduler started - predictions will be updated hourly")
 
 class GamePredictionRequest(BaseModel):
     home_team: str
@@ -382,4 +412,19 @@ async def update_result(prediction_id: int, actual_winner: str,
         return {"status": "success"}
     except Exception as e:
         logger.error(f"Error updating prediction result: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/trigger-prediction-update")
+async def trigger_update():
+    """Manually trigger prediction result update"""
+    try:
+        result = update_predictions_with_results()
+        return {
+            "status": "success",
+            "updated": result.get("updated", 0),
+            "total": result.get("total", 0),
+            "errors": result.get("errors", 0)
+        }
+    except Exception as e:
+        logger.error(f"Error triggering update: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) 
