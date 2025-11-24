@@ -55,34 +55,77 @@ def update_predictions_with_results():
         updated_count = 0
         error_count = 0
         
-        try:
-            # Get games from API
-            response = api.nba.games.list(dates=dates)
-            games = response.data if hasattr(response, 'data') else []
-            
-            # Create a lookup dictionary: (home_team, away_team, date) -> game result
+        # Fetch games for each date
+        all_games = []
+        for date_str in dates:
+            try:
+                # Get games from API
+                response = api.nba.games.list(dates=[date_str])
+                # Handle both dict response and object response
+                if isinstance(response, dict):
+                    games = response.get('data', [])
+                elif hasattr(response, 'data'):
+                    games = response.data
+                else:
+                    games = []
+                all_games.extend(games)
+            except Exception as e:
+                logger.error(f"Error fetching games for {date_str}: {str(e)}")
+                continue
+        
+        games = all_games
+        
+        # Create a lookup dictionary: (home_team, away_team, date) -> game result
             game_results = {}
             for game in games:
                 try:
-                    # Check if game is final
-                    status = getattr(game, 'status', None)
+                    # Check if game is final - handle both object attributes and dict keys
+                    if isinstance(game, dict):
+                        status = game.get('status')
+                    else:
+                        status = getattr(game, 'status', None)
+                    
                     if status != 'Final':
                         continue
                     
-                    # Get teams
-                    if hasattr(game, 'home_team'):
-                        home_team = game.home_team.abbreviation if hasattr(game.home_team, 'abbreviation') else str(game.home_team)
+                    # Get teams - handle both dict and object formats
+                    if isinstance(game, dict):
+                        home_team_obj = game.get('home_team', {})
+                        visitor_team_obj = game.get('visitor_team', {})
+                        home_team = home_team_obj.get('abbreviation') if isinstance(home_team_obj, dict) else None
+                        away_team = visitor_team_obj.get('abbreviation') if isinstance(visitor_team_obj, dict) else None
+                        game_date = game.get('date')
+                        home_score = game.get('home_team_score')
+                        visitor_score = game.get('visitor_team_score')
                     else:
-                        continue
+                        # Object format
+                        if hasattr(game, 'home_team'):
+                            home_team_obj = game.home_team
+                            if hasattr(home_team_obj, 'abbreviation'):
+                                home_team = home_team_obj.abbreviation
+                            elif isinstance(home_team_obj, dict):
+                                home_team = home_team_obj.get('abbreviation')
+                            else:
+                                continue
+                        else:
+                            continue
+                        
+                        if hasattr(game, 'visitor_team'):
+                            visitor_team_obj = game.visitor_team
+                            if hasattr(visitor_team_obj, 'abbreviation'):
+                                away_team = visitor_team_obj.abbreviation
+                            elif isinstance(visitor_team_obj, dict):
+                                away_team = visitor_team_obj.get('abbreviation')
+                            else:
+                                continue
+                        else:
+                            continue
+                        
+                        game_date = getattr(game, 'date', None)
+                        home_score = getattr(game, 'home_team_score', None)
+                        visitor_score = getattr(game, 'visitor_team_score', None)
                     
-                    if hasattr(game, 'visitor_team'):
-                        away_team = game.visitor_team.abbreviation if hasattr(game.visitor_team, 'abbreviation') else str(game.visitor_team)
-                    else:
-                        continue
-                    
-                    # Get date
-                    game_date = getattr(game, 'date', None)
-                    if not game_date:
+                    if not home_team or not away_team or not game_date:
                         continue
                     
                     # Parse date
@@ -99,47 +142,28 @@ def update_predictions_with_results():
                     
                     date_str = game_date_obj.strftime("%Y-%m-%d")
                     
-                    # Get scores - try multiple possible field names
-                    home_score = None
-                    away_score = None
-                    
-                    # Try different possible score field names
-                    if hasattr(game, 'home_team_score'):
-                        home_score = game.home_team_score
-                    elif hasattr(game, 'home_score'):
-                        home_score = game.home_score
-                    elif hasattr(game, 'home') and isinstance(game.home, dict):
-                        home_score = game.home.get('score')
-                    
-                    if hasattr(game, 'visitor_team_score'):
-                        away_score = game.visitor_team_score
-                    elif hasattr(game, 'visitor_score'):
-                        away_score = game.visitor_score
-                    elif hasattr(game, 'away_score'):
-                        away_score = game.away_score
-                    elif hasattr(game, 'visitor') and isinstance(game.visitor, dict):
-                        away_score = game.visitor.get('score')
-                    
                     # Determine winner
-                    if home_score is not None and away_score is not None:
-                        actual_winner = home_team if home_score > away_score else away_team
+                    if home_score is not None and visitor_score is not None:
+                        actual_winner = home_team if home_score > visitor_score else away_team
                         
                         # Store both team orders for lookup
                         game_results[(home_team, away_team, date_str)] = {
                             'winner': actual_winner,
                             'home_score': int(home_score),
-                            'away_score': int(away_score)
+                            'away_score': int(visitor_score)
                         }
                         game_results[(away_team, home_team, date_str)] = {
                             'winner': actual_winner,
                             'home_score': int(home_score),
-                            'away_score': int(away_score)
+                            'away_score': int(visitor_score)
                         }
-                        logger.debug(f"Added game result: {home_team} {home_score} - {away_team} {away_score} on {date_str}")
+                        logger.debug(f"Added game result: {home_team} {home_score} - {away_team} {visitor_score} on {date_str}")
                     else:
                         logger.warning(f"Game {home_team} vs {away_team} on {date_str} is Final but scores not available")
                 except Exception as e:
                     logger.warning(f"Error processing game result: {str(e)}")
+                    import traceback
+                    logger.debug(traceback.format_exc())
                     continue
             
             logger.info(f"Found {len(game_results)} completed games from API")
