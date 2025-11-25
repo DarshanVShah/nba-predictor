@@ -470,23 +470,70 @@ async def get_historical_predictions(date: str):
             response = api.nba.games.list(dates=[date])
             logger.info(f"API response type: {type(response)}")
             
+            # Handle different response formats
+            games = []
             if isinstance(response, dict):
                 games = response.get('data', [])
                 logger.info(f"Got {len(games)} games from dict response")
+                # Also check if there's a 'meta' field that might indicate pagination
+                if 'meta' in response:
+                    logger.info(f"Response meta: {response.get('meta')}")
             elif hasattr(response, 'data'):
                 games = response.data
                 logger.info(f"Got {len(games)} games from object response")
+                # Check if response has other attributes
+                if hasattr(response, 'meta'):
+                    logger.info(f"Response meta: {response.meta}")
             else:
                 logger.warning(f"Unexpected response format: {response}")
+                # Try to extract games anyway
+                if hasattr(response, '__dict__'):
+                    logger.info(f"Response attributes: {list(response.__dict__.keys())}")
                 games = []
+            
+            # Filter games by date to ensure we only get games for the requested date
+            # Sometimes the API returns games from nearby dates
+            filtered_games = []
+            for game in games:
+                try:
+                    game_date = None
+                    if isinstance(game, dict):
+                        game_date = game.get('date')
+                    else:
+                        game_date = getattr(game, 'date', None)
+                    
+                    if game_date:
+                        # Parse the game date and compare
+                        if isinstance(game_date, str):
+                            # Extract just the date part (YYYY-MM-DD)
+                            game_date_str = game_date.split('T')[0] if 'T' in game_date else game_date
+                            if game_date_str == date:
+                                filtered_games.append(game)
+                        else:
+                            # If it's a datetime object, convert to string
+                            game_date_str = game_date.strftime("%Y-%m-%d") if hasattr(game_date, 'strftime') else str(game_date)
+                            if game_date_str == date:
+                                filtered_games.append(game)
+                except Exception as e:
+                    logger.warning(f"Error filtering game by date: {str(e)}")
+                    # Include the game anyway if we can't parse the date
+                    filtered_games.append(game)
+            
+            games = filtered_games
+            logger.info(f"After filtering by date {date}, got {len(games)} games")
                 
             # Log first game if available for debugging
             if games and len(games) > 0:
                 first_game = games[0]
                 if isinstance(first_game, dict):
-                    logger.info(f"First game date: {first_game.get('date')}, status: {first_game.get('status')}")
+                    logger.info(f"First game date: {first_game.get('date')}, status: {first_game.get('status')}, home: {first_game.get('home_team', {}).get('abbreviation', 'N/A')}, away: {first_game.get('visitor_team', {}).get('abbreviation', 'N/A')}")
                 else:
                     logger.info(f"First game date: {getattr(first_game, 'date', 'N/A')}, status: {getattr(first_game, 'status', 'N/A')}")
+            else:
+                logger.warning(f"No games found for date {date}. This might mean:")
+                logger.warning("1. There were no NBA games scheduled for this date")
+                logger.warning("2. The API doesn't have data for this date")
+                logger.warning("3. The date format might not match what the API expects")
         except Exception as api_error:
             logger.error(f"API error fetching games for {date}: {str(api_error)}")
             import traceback
@@ -494,10 +541,11 @@ async def get_historical_predictions(date: str):
             games = []
         
         if not games:
+            logger.info(f"Returning empty games list for date {date}")
             return {
                 "date": date,
                 "games": [],
-                "message": "No games found for this date"
+                "message": f"No games found for {date}. This date may not have had any scheduled NBA games, or the API may not have data for this date."
             }
         
         # Process each game: make prediction and get actual result
