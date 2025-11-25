@@ -525,16 +525,19 @@ async def get_historical_predictions(date: str):
                     continue
                 
                 # Make prediction - use the date string directly
+                predicted_winner = None
+                confidence = 0.5
                 try:
-                    prediction_result = predictor.predict_game(home_team, away_team, date)
-                    if prediction_result:
-                        predicted_winner = prediction_result.get('winner') or prediction_result.get('predicted_winner')
-                        confidence = prediction_result.get('confidence', 0.5)
-                        logger.info(f"Prediction successful: {predicted_winner} with confidence {confidence}")
+                    if predictor is None:
+                        logger.warning(f"Predictor not initialized - cannot predict {home_team} vs {away_team}")
                     else:
-                        logger.warning(f"Prediction returned None for {home_team} vs {away_team}")
-                        predicted_winner = None
-                        confidence = 0.5
+                        prediction_result = predictor.predict_game(home_team, away_team, date)
+                        if prediction_result:
+                            predicted_winner = prediction_result.get('winner') or prediction_result.get('predicted_winner')
+                            confidence = prediction_result.get('confidence', 0.5)
+                            logger.info(f"Prediction successful: {predicted_winner} with confidence {confidence}")
+                        else:
+                            logger.warning(f"Prediction returned None for {home_team} vs {away_team}")
                 except Exception as pred_error:
                     logger.error(f"Error predicting {home_team} vs {away_team} on {date}: {str(pred_error)}")
                     import traceback
