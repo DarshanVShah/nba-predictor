@@ -637,3 +637,4 @@ async def get_historical_predictions(date: str):
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e)) 
+
