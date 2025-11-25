@@ -48,13 +48,18 @@ env/
 *.ipynb_checkpoints/
 
 # Model files (can be large, regenerate from notebook)
+# BUT: Required files for deployment - DO NOT IGNORE these:
+!backend/models/nba_model.pkl
+!backend/models/predictors.pkl
+!backend/models/scaler.pkl
 *.pkl
 *.h5
 *.hdf5
 *.joblib
-backend/models/*.pkl
 
 # Data files (can be large)
+# BUT: Required files for deployment - DO NOT IGNORE these:
+!backend/data/processed/final_dataset.csv
 *.csv
 backend/data/**/*.csv
 backend/data/processed/*.csv
