@@ -445,28 +445,52 @@ async def get_historical_predictions(date: str):
         
         # Check earliest date (November 23, 2025)
         earliest_date = datetime(2025, 11, 23).date()
-        if target_date < earliest_date:
-            raise HTTPException(status_code=400, detail=f"Earliest date allowed is {earliest_date}")
         
-        # Check that date is not in the future
+        # Check that date is not in the future (using EST)
         est = pytz.timezone('US/Eastern')
         today_est = datetime.now(est).date()
-        if target_date > today_est:
-            raise HTTPException(status_code=400, detail="Cannot get predictions for future dates")
         
-        logger.info(f"Fetching historical predictions for date: {date}")
+        # Validate date range
+        if target_date < earliest_date:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Earliest date allowed is {earliest_date.strftime('%Y-%m-%d')}. Selected date: {date}"
+            )
+        if target_date > today_est:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot get predictions for future dates. Today (EST): {today_est.strftime('%Y-%m-%d')}, Selected: {date}"
+            )
+        
+        logger.info(f"Fetching historical predictions for date: {date} (EST today: {today_est})")
         
         # Fetch games for the date
         try:
+            logger.info(f"Calling balldontlie API for date: {date}")
             response = api.nba.games.list(dates=[date])
+            logger.info(f"API response type: {type(response)}")
+            
             if isinstance(response, dict):
                 games = response.get('data', [])
+                logger.info(f"Got {len(games)} games from dict response")
             elif hasattr(response, 'data'):
                 games = response.data
+                logger.info(f"Got {len(games)} games from object response")
             else:
+                logger.warning(f"Unexpected response format: {response}")
                 games = []
+                
+            # Log first game if available for debugging
+            if games and len(games) > 0:
+                first_game = games[0]
+                if isinstance(first_game, dict):
+                    logger.info(f"First game date: {first_game.get('date')}, status: {first_game.get('status')}")
+                else:
+                    logger.info(f"First game date: {getattr(first_game, 'date', 'N/A')}, status: {getattr(first_game, 'status', 'N/A')}")
         except Exception as api_error:
-            logger.error(f"API error fetching games: {str(api_error)}")
+            logger.error(f"API error fetching games for {date}: {str(api_error)}")
+            import traceback
+            logger.error(traceback.format_exc())
             games = []
         
         if not games:
@@ -497,13 +521,21 @@ async def get_historical_predictions(date: str):
                 if not home_team or not away_team:
                     continue
                 
-                # Make prediction
+                # Make prediction - use the date string directly
                 try:
                     prediction_result = predictor.predict_game(home_team, away_team, date)
-                    predicted_winner = prediction_result.get('predicted_winner')
-                    confidence = prediction_result.get('confidence', 0.5)
+                    if prediction_result:
+                        predicted_winner = prediction_result.get('winner') or prediction_result.get('predicted_winner')
+                        confidence = prediction_result.get('confidence', 0.5)
+                        logger.info(f"Prediction successful: {predicted_winner} with confidence {confidence}")
+                    else:
+                        logger.warning(f"Prediction returned None for {home_team} vs {away_team}")
+                        predicted_winner = None
+                        confidence = 0.5
                 except Exception as pred_error:
-                    logger.warning(f"Error predicting {home_team} vs {away_team}: {str(pred_error)}")
+                    logger.error(f"Error predicting {home_team} vs {away_team} on {date}: {str(pred_error)}")
+                    import traceback
+                    logger.error(traceback.format_exc())
                     predicted_winner = None
                     confidence = 0.5
                 
