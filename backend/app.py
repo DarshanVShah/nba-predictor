@@ -29,16 +29,19 @@ logger.info(f"Current working directory: {os.getcwd()}")
 logger.info(f"Absolute path of data file: {DATA_FILE_PATH}")
 
 # Initialize balldontlie client with API key from environment
-
-api_key = os.getenv("BALLDONTLIE_API_KEY", "bfdc4ecf-c070-4e93-b9ac-cb36f049efb1")
+api_key = os.getenv("BALLDONTLIE_API_KEY")
+if not api_key:
+    raise ValueError("BALLDONTLIE_API_KEY environment variable is required")
 api = BalldontlieAPI(api_key=api_key)
 
 app = FastAPI(title="NBA Game Predictor")
 
 # Add CORS middleware
+# Get allowed origins from environment variable or use defaults
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:3001,http://localhost:3002").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -16,13 +16,21 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Initialize API
-api_key = os.getenv("BALLDONTLIE_API_KEY", "bfdc4ecf-c070-4e93-b9ac-cb36f049efb1")
-api = BalldontlieAPI(api_key=api_key)
+api_key = os.getenv("BALLDONTLIE_API_KEY")
+if not api_key:
+    logger.error("BALLDONTLIE_API_KEY environment variable is required")
+    api = None
+else:
+    api = BalldontlieAPI(api_key=api_key)
 
 def update_predictions_with_results():
     """
     Fetch completed games from the last 7 days and update predictions
     """
+    if api is None:
+        logger.error("Cannot update predictions: BALLDONTLIE_API_KEY not configured")
+        return {"updated": 0, "total": 0, "errors": 1}
+    
     try:
         logger.info("Starting prediction result update...")
         

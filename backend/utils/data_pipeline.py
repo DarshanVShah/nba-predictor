@@ -20,7 +20,9 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-api_key = os.getenv("BALLDONTLIE_API_KEY", "bfdc4ecf-c070-4e93-b9ac-cb36f049efb1")
+api_key = os.getenv("BALLDONTLIE_API_KEY")
+if not api_key:
+    raise ValueError("BALLDONTLIE_API_KEY environment variable is required")
 api = BalldontlieAPI(api_key=api_key)
 
 async def get_future_games():

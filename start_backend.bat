@@ -19,14 +19,15 @@ call .venv\Scripts\activate.bat
 
 REM Check if .env exists
 if not exist .env (
-    echo WARNING: .env file not found!
-    echo Creating .env file with default values...
-    (
-        echo BALLDONTLIE_API_KEY=bfdc4ecf-c070-4e93-b9ac-cb36f049efb1
-        echo BACKEND_HOST=localhost
-        echo BACKEND_PORT=8000
-    ) > .env
+    echo ERROR: .env file not found!
+    echo Please create a .env file with the following variables:
+    echo   BALLDONTLIE_API_KEY=your_api_key_here
+    echo   BACKEND_HOST=localhost
+    echo   BACKEND_PORT=8000
     echo.
+    echo You can copy .env.example to .env and fill in your values.
+    pause
+    exit /b 1
 )
 
 REM Check if dependencies are installed
