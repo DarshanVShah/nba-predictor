@@ -24,6 +24,19 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Download required files if URLs are provided (solves Git LFS/volume issues)
+try:
+    from backend.utils.file_downloader import ensure_files_exist
+    ensure_files_exist(
+        final_dataset_url=os.getenv("FINAL_DATASET_URL"),
+        processed_data_url=os.getenv("PROCESSED_DATA_URL"),
+        model_url=os.getenv("MODEL_URL"),
+        predictors_url=os.getenv("PREDICTORS_URL"),
+        scaler_url=os.getenv("SCALER_URL")
+    )
+except Exception as e:
+    logger.warning(f"File downloader not available or failed: {str(e)}")
+
 # Debug prints
 logger.info(f"Current working directory: {os.getcwd()}")
 logger.info(f"Absolute path of data file: {DATA_FILE_PATH}")
