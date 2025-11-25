@@ -3,7 +3,7 @@
  * Displays past predictions and their accuracy
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { getTeamLogo, getTeamName } from '../utils/teamLogos';
 import './PredictionHistory.css';
 

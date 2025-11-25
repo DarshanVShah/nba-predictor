@@ -8,7 +8,6 @@ import { getTeamLogo, getTeamName, getShortTeamName } from '../utils/teamLogos';
 import './GameCard.css';
 
 const GameCard = ({ game, prediction, isPredicting, onPredict }) => {
-  const gameKey = `${game.home_team}-${game.away_team}`;
   const homeWinProb = prediction 
     ? (prediction.winner === game.home_team ? prediction.confidence : 1 - prediction.confidence)
     : null;
