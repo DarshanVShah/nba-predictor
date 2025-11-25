@@ -1,0 +1,10 @@
+# Cloudflare Pages - Ignore Python backend files
+# This file helps Cloudflare understand to only build frontend
+
+# Ignore parent directory Python files
+../requirements.txt
+../backend/
+../*.py
+../railway.json
+../runtime.txt
+
