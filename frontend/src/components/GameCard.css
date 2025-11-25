@@ -4,6 +4,7 @@
   background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
   border-radius: 20px;
   padding: 2rem;
+  padding-top: 3.5rem;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   border: 1px solid rgba(0, 0, 0, 0.06);
@@ -44,13 +45,14 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #667eea;
+  z-index: 10;
 }
 
 .teams-matchup {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  margin-top: 0.5rem;
+  margin-top: 0;
 }
 
 .team-card {
@@ -83,6 +85,7 @@
   right: 0.75rem;
   font-size: 1.25rem;
   animation: bounce 2s infinite;
+  z-index: 5;
 }
 
 @keyframes bounce {
@@ -326,6 +329,14 @@
 @media (max-width: 768px) {
   .game-card {
     padding: 1.5rem;
+    padding-top: 3rem;
+  }
+
+  .game-status-badge {
+    top: 0.75rem;
+    right: 0.75rem;
+    font-size: 0.7rem;
+    padding: 0.35rem 0.7rem;
   }
 
   .team-logo-wrapper {
@@ -347,6 +358,32 @@
 
   .probability-bar-container {
     width: 80px;
+  }
+
+  .team-card.predicted-winner::after {
+    top: 0.5rem;
+    right: 0.5rem;
+    font-size: 1.1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .game-card {
+    padding: 1rem;
+    padding-top: 2.75rem;
+  }
+
+  .game-status-badge {
+    top: 0.5rem;
+    right: 0.5rem;
+    font-size: 0.65rem;
+    padding: 0.3rem 0.6rem;
+  }
+
+  .team-card.predicted-winner::after {
+    top: 0.4rem;
+    right: 0.4rem;
+    font-size: 1rem;
   }
 }
 
