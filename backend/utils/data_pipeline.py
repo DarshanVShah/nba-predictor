@@ -15,15 +15,23 @@ logger = logging.getLogger(__name__)
 DATA_DIR = "data"
 PROCESSED_DIR = os.path.join(DATA_DIR, "processed")
 
-# Initialize balldontlie client
+# Initialize balldontlie client (lazy initialization)
 import os
 from dotenv import load_dotenv
 load_dotenv()
 
-api_key = os.getenv("BALLDONTLIE_API_KEY")
-if not api_key:
-    raise ValueError("BALLDONTLIE_API_KEY environment variable is required")
-api = BalldontlieAPI(api_key=api_key)
+api = None
+_api_key = None
+
+def get_api():
+    """Get or initialize the API client (lazy initialization)"""
+    global api, _api_key
+    if api is None:
+        _api_key = os.getenv("BALLDONTLIE_API_KEY")
+        if not _api_key:
+            raise ValueError("BALLDONTLIE_API_KEY environment variable is required")
+        api = BalldontlieAPI(api_key=_api_key)
+    return api
 
 async def get_future_games():
     """Get list of future games from balldontlie API."""
@@ -35,7 +43,8 @@ async def get_future_games():
         logger.info(f"Fetching future games for dates: {dates}")
         
         # Get games using the API
-        response = api.nba.games.list(dates=dates)
+        api_client = get_api()
+        response = api_client.nba.games.list(dates=dates)
         games = response.data
         
         if not games:

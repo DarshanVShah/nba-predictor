@@ -1,0 +1,7 @@
+# Cloudflare Pages Build Configuration
+# This file helps Cloudflare understand this is a frontend-only build
+
+# Cloudflare should only build the frontend, not Python backend
+# Build command should be: cd frontend && npm ci && npm run build
+# Output directory: frontend/build
+
