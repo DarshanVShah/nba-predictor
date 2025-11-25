@@ -22,6 +22,8 @@ function App() {
   const [error, setError] = useState(null);
   const [predictions, setPredictions] = useState({});
   const [modelStats, setModelStats] = useState(null);
+  const [rateLimitReached, setRateLimitReached] = useState(false);
+  const [rateLimitCountdown, setRateLimitCountdown] = useState(60);
   // Get today's date in EST timezone
   const getTodayEST = () => {
     const now = new Date();
@@ -71,6 +73,11 @@ function App() {
       // Fetch list of games for today
       const response = await fetch(`${API_BASE_URL}/daily-games`);
       if (!response.ok) {
+        // Check for rate limit
+        if (response.status === 429) {
+          setRateLimitReached(true);
+          setRateLimitCountdown(60);
+        }
         throw new Error(`Failed to fetch games: ${response.status} ${response.statusText}`);
       }
       
@@ -109,6 +116,16 @@ function App() {
             } catch (e) {
               errorMessage = `HTTP ${predResponse.status}: ${predResponse.statusText}`;
             }
+            
+            // Check for rate limit error
+            if (predResponse.status === 429 || 
+                errorMessage.toLowerCase().includes('rate limit') || 
+                errorMessage.toLowerCase().includes('request limit') ||
+                errorMessage.toLowerCase().includes('too many requests')) {
+              setRateLimitReached(true);
+              setRateLimitCountdown(60);
+            }
+            
             console.error(`Error predicting game ${gameKey}:`, errorMessage);
             return null;
           }
@@ -178,11 +195,41 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Rate limit countdown timer
+  useEffect(() => {
+    if (!rateLimitReached) return;
+
+    const timer = setInterval(() => {
+      setRateLimitCountdown((prev) => {
+        if (prev <= 1) {
+          setRateLimitReached(false);
+          setRateLimitCountdown(60);
+          return 60;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [rateLimitReached]);
+
   return (
     <div className="App">
       <Header modelStats={modelStats} />
 
       <main className="app-main">
+        {/* Rate Limit Display */}
+        {rateLimitReached && (
+          <div className="rate-limit-banner">
+            <div className="rate-limit-content">
+              <span className="rate-limit-icon">⏱️</span>
+              <span className="rate-limit-message">
+                API request limit reached. Resetting in <span className="rate-limit-countdown">{rateLimitCountdown}</span> seconds...
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Error Display */}
         {error && (
           <div className="error-banner">
@@ -227,7 +274,6 @@ function App() {
                 </>
               ) : (
                 <>
-                  <span>🔄</span>
                   <span>Refresh Games</span>
                 </>
               )}

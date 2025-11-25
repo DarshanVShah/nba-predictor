@@ -147,6 +147,14 @@ async def predict_game(request: GamePredictionRequest):
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=400, detail=error_msg)
     except Exception as e:
+        # Check for rate limit errors
+        error_str = str(e).lower()
+        if 'rate limit' in error_str or 'too many requests' in error_str or '429' in error_str:
+            raise HTTPException(
+                status_code=429,
+                detail="API request limit reached. Please wait a minute before trying again."
+            )
+        
         # Other errors might be server issues - return 500
         error_msg = f"Internal error: {str(e)}"
         logger.error(f"Error in predict_game: {error_msg}")
@@ -204,8 +212,17 @@ async def get_daily_games():
                     today_games.append(game)
             games = today_games
         except Exception as api_error:
+            error_str = str(api_error).lower()
             logger.error(f"API error: {str(api_error)}")
-            # Return empty games list instead of failing
+            
+            # Check for rate limit errors
+            if 'rate limit' in error_str or 'too many requests' in error_str or '429' in error_str:
+                raise HTTPException(
+                    status_code=429,
+                    detail="API request limit reached. Please wait a minute before trying again."
+                )
+            
+            # Return empty games list for other errors
             return {
                 "date": today_est,
                 "games": []
@@ -504,9 +521,18 @@ async def get_historical_predictions(date: str):
                 else:
                     logger.info(f"First game date: {getattr(first_game, 'date', 'N/A')}, status: {getattr(first_game, 'status', 'N/A')}")
         except Exception as api_error:
+            error_str = str(api_error).lower()
             logger.error(f"API error fetching games for {date}: {str(api_error)}")
             import traceback
             logger.error(traceback.format_exc())
+            
+            # Check for rate limit errors
+            if 'rate limit' in error_str or 'too many requests' in error_str or '429' in error_str:
+                raise HTTPException(
+                    status_code=429,
+                    detail="API request limit reached. Please wait a minute before trying again."
+                )
+            
             games = []
         
         if not games:
